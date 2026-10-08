@@ -1,0 +1,44 @@
+Florepo
+Copyright 2026 Maximilian Thoma
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes or uses third-party software under their own licenses:
+
+Python libraries (installed in the image)
+  Flask, Werkzeug, Jinja2, MarkupSafe, click, itsdangerous,
+  Flask-SQLAlchemy, Flask-WTF, WTForms, idna, pycparser, zstandard ... BSD-3-Clause / BSD
+  SQLAlchemy, alembic, Mako, gunicorn, gevent, Flask-Login, blinker,
+  urllib3, charset-normalizer ........................................ MIT
+  greenlet ............................................................ MIT AND PSF-2.0
+  cffi ................................................................ MIT-0
+  requests, packaging ................................................. Apache-2.0 (packaging: or BSD)
+  cryptography ........................................................ Apache-2.0 OR BSD-3-Clause
+  psycopg, psycopg-binary ............................................. LGPL-3.0-only (dynamically imported, unmodified)
+  certifi ............................................................. MPL-2.0 (unmodified)
+  zope.event, zope.interface .......................................... ZPL-2.1
+  typing_extensions ................................................... PSF-2.0
+  boto3, botocore, s3transfer, jmespath ................................ Apache-2.0 / MIT (S3 storage backend)
+  python-dateutil, six ................................................ Apache-2.0 OR BSD-3-Clause / MIT
+  ldap3 ............................................................... LGPL-3.0 (dynamically imported, unmodified)
+  pyasn1 .............................................................. BSD-2-Clause
+  PyYAML .............................................................. MIT
+
+Separate programs bundled in the container images (invoked as external processes)
+  Trivy (Aqua Security) ............................................... Apache-2.0
+  GnuPG ............................................................... GPL-3.0-or-later
+  RPM, createrepo_c ................................................... GPL-2.0-or-later
+  nginx ............................................................... BSD-2-Clause
+  PostgreSQL (separate container) ..................................... PostgreSQL License
+  Debian base image packages .......................................... various (see /usr/share/doc/*/copyright)
+
+Optional separate containers (not part of the Florepo images)
+  ClamAV (malware scanning, talked to over the clamd TCP protocol) ..... GPL-2.0-only
+  SeaweedFS (example S3 store in docker-compose.s3-local.yml) .......... Apache-2.0
+
+Front-end
+  Lucide icons (app/static/icons, see LICENSE.lucide) ................. ISC
+  Tailwind CSS (build-time only, generated CSS) ....................... MIT
+
+Vulnerability data (Trivy DB, OSV.dev) and ClamAV signatures are downloaded at runtime by the operator and are subject to the
+terms of the respective data sources; it is not part of this product.

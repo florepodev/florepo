@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% from "_macros.html" import dt, card, pager, sort_th %}
+{% block title %}Audit log{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold text-slate-900 mb-6">Audit log</h1>
+{% call card() %}
+<div class="overflow-x-auto">
+<table class="min-w-full text-sm">
+  <thead class="text-left text-slate-500 bg-slate-50"><tr>
+    {{ sort_th('Time (UTC)', 'time', sort, 'px-5') }}{{ sort_th('User', 'user', sort) }}
+    {{ sort_th('Action', 'action', sort) }}{{ sort_th('Target', 'target', sort) }}</tr></thead>
+  <tbody class="divide-y divide-slate-100">
+  {% for e in page.items %}
+    <tr><td class="px-5 py-2 text-slate-500 whitespace-nowrap">{{ dt(e.created_at) }}</td><td class="px-3 py-2">{{ e.username }}</td>
+      <td class="px-3 py-2"><code class="text-xs bg-slate-100 rounded px-1">{{ e.action }}</code></td><td class="px-3 py-2 text-slate-600 break-all">{{ e.target }}</td></tr>
+  {% else %}<tr><td colspan="4" class="px-5 py-6 text-center text-slate-500">No entries.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{{ pager(page) }}
+{% endcall %}
+{% endblock %}

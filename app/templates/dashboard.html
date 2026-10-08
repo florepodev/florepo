@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% from "_macros.html" import sev_badge, sev_summary, sev_score, fmt_badge, dt, card %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold text-slate-900 mb-6">Dashboard</h1>
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  {% for label, value, hint in [
+      ('Repositories', stats.repos, (stats.formats ~ (' format' if stats.formats == 1 else ' formats')) if stats.formats else 'none yet'),
+      ('Packages', stats.packages, stats.versions ~ ' versions'),
+      ('Vulnerable', stats.vulnerable, 'versions with critical/high findings'),
+      ('Downloads', stats.pulls, 'logged in total')] %}
+  <div class="bg-white rounded-lg shadow-sm ring-1 ring-slate-200 p-5">
+    <div class="text-sm text-slate-500">{{ label }}</div>
+    <div class="mt-1 text-3xl font-semibold text-slate-900">{{ value }}</div>
+    <div class="text-xs text-slate-400 mt-1">{{ hint }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="grid lg:grid-cols-3 gap-6 mb-6">
+  {% call card('Open findings by severity') %}
+  <div class="p-5 space-y-3">
+    {% set maxv = (sev_totals.values() | max) or 1 %}
+    {% for s in SEVERITIES %}
+    <div class="flex items-center gap-3 text-sm">
+      <div class="w-20">{{ sev_badge(s) }}</div>
+      <div class="flex-1 h-2 rounded bg-slate-100 overflow-hidden">
+        <div class="h-2 {{ {'CRITICAL':'bg-red-600','HIGH':'bg-orange-500','MEDIUM':'bg-amber-400','LOW':'bg-sky-400','UNKNOWN':'bg-slate-400'}[s] }}" style="width: {{ (100 * sev_totals[s] / maxv) | round }}%"></div>
+      </div>
+      <div class="w-12 text-right tabular-nums">{{ sev_totals[s] }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endcall %}
+
+  {% call card('Scanner') %}
+  <dl class="p-5 text-sm space-y-2">
+    <div class="flex justify-between"><dt class="text-slate-500">Trivy</dt>
+      <dd>{% if trivy %}<span class="text-emerald-700">v{{ trivy }}</span>{% else %}<span class="text-red-700">not installed</span>{% endif %}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">Signature DB</dt><dd>{{ dt(db_updated) if db_updated else '–' }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">OSV.dev</dt>
+      <dd>{{ 'enabled' if config.OSV_ENABLED else 'disabled' }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">Queue</dt><dd>{{ stats.pending }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">Failed</dt><dd class="{{ 'text-red-700' if stats.failed }}">{{ stats.failed }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">Re-scan interval</dt><dd>{{ (rescan_hours ~ ' h') if rescan_hours else 'off' }}</dd></div>
+    {% if current_user.is_authenticated and current_user.is_admin %}<a class="block pt-1 text-indigo-700 hover:underline" href="{{ url_for('ui.scanner_admin') }}">Manage scanner →</a>{% endif %}
+  </dl>
+  {% endcall %}
+
+  {% call card('Most affected') %}
+  <ul class="divide-y divide-slate-100 text-sm">
+    {% for v in critical %}
+    <li class="px-5 py-2 flex items-center justify-between gap-2">
+      <a class="truncate text-indigo-700 hover:underline" href="{{ url_for('ui.version_detail', vid=v.id) }}">{{ v.package.display_name }}<span class="text-slate-400">@{{ v.version }}</span></a>
+      {{ sev_summary(v) }}
+    </li>
+    {% else %}<li class="px-5 py-4 text-slate-500">No critical findings 🎉</li>{% endfor %}
+  </ul>
+  {% endcall %}
+</div>
+
+{% call card('Recently uploaded / cached') %}
+<div class="overflow-x-auto">
+<table class="sortable min-w-full text-sm">
+  <thead class="text-left text-slate-500 bg-slate-50"><tr>
+    <th class="px-5 py-2 font-medium">Package</th><th class="px-3 py-2 font-medium">Version</th>
+    <th class="px-3 py-2 font-medium">Repository</th><th class="px-3 py-2 font-medium">Security</th>
+    <th class="px-3 py-2 font-medium">By</th><th class="px-3 py-2 font-medium">Date</th></tr></thead>
+  <tbody class="divide-y divide-slate-100">
+  {% for v in recent %}
+    <tr class="hover:bg-slate-50">
+      <td class="px-5 py-2"><a class="text-indigo-700 hover:underline" href="{{ url_for('ui.package_detail', pid=v.package.id) }}">{{ v.package.display_name }}</a></td>
+      <td class="px-3 py-2"><a class="hover:underline" href="{{ url_for('ui.version_detail', vid=v.id) }}">{{ v.version }}</a></td>
+      <td class="px-3 py-2" data-sort="{{ v.package.repository.name }}">{{ fmt_badge(v.package.repository.format) }} {{ v.package.repository.name }}</td>
+      <td class="px-3 py-2" data-sort="{{ sev_score(v) }}">{{ sev_summary(v) }}</td>
+      <td class="px-3 py-2 text-slate-500">{{ v.uploaded_by or '–' }}</td>
+      <td class="px-3 py-2 text-slate-500">{{ dt(v.created_at) }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="px-5 py-6 text-center text-slate-500">No artifacts yet. Create a <a class="text-indigo-700 underline" href="{{ url_for('ui.repos') }}">repository</a>.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endcall %}
+{% endblock %}

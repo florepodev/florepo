@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_badge, sev_summary, sev_score, dt, card %}
+{% block title %}Package inventory{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold text-slate-900 mb-1">Package inventory</h1>
+<p class="text-slate-500 text-sm mb-6">All package versions pulled in the selected period – with consumers and security status.</p>
+{% set export = True %}
+{% include "reports/_filters.html" %}
+{% call card(items|length ~ ' package versions in use') %}
+<div class="overflow-x-auto">
+<table class="sortable min-w-full text-sm">
+  <thead class="text-left text-slate-500 bg-slate-50"><tr>
+    <th class="px-5 py-2 font-medium">Package</th><th class="px-3 py-2 font-medium">Version</th>
+    <th class="px-3 py-2 font-medium">Security</th><th class="px-3 py-2 font-medium text-right">Downloads</th>
+    <th class="px-3 py-2 font-medium">Users</th><th class="px-3 py-2 font-medium">Last pull</th></tr></thead>
+  <tbody class="divide-y divide-slate-100">
+  {% for i in items %}
+    <tr class="hover:bg-slate-50 align-top">
+      <td class="px-5 py-2" data-sort="{{ i.package }}">{{ fmt_badge(i.format) }} {{ i.package }} <div class="text-xs text-slate-400">{{ i.repo }}</div></td>
+      <td class="px-3 py-2">{% if i.v %}<a class="text-indigo-700 hover:underline" href="{{ url_for('ui.version_detail', vid=i.v.id) }}">{{ i.version }}</a>{% else %}{{ i.version }}{% endif %}</td>
+      <td class="px-3 py-2" data-sort="{{ sev_score(i.v) }}">{% if i.v %}{{ sev_summary(i.v) }}{% else %}<span class="text-xs text-slate-400">deleted</span>{% endif %}</td>
+      <td class="px-3 py-2 text-right tabular-nums">{{ i.pulls }}</td>
+      <td class="px-3 py-2" data-sort="{{ i.users | length }}">{% for u, n in i.users | dictsort %}<a class="inline-block mr-1 mb-1 rounded bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 text-xs" href="{{ url_for('reports.user_report', username=u, days=f.days) }}">{{ u }} <span class="text-slate-400">{{ n }}</span></a>{% endfor %}</td>
+      <td class="px-3 py-2 text-slate-500 whitespace-nowrap">{{ dt(i.last) }}</td>
+    </tr>
+  {% else %}<tr><td colspan="6" class="px-5 py-6 text-center text-slate-500">No downloads in this period.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endcall %}
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% from "_macros.html" import card, csrf, fmt_badge, icon %}
+{% block title %}Network{% endblock %}
+{% block content %}
+{% set input = "mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" %}
+<h1 class="text-2xl font-semibold text-slate-900 mb-1">Network</h1>
+<p class="text-slate-500 text-sm mb-6">Outbound HTTP/HTTPS proxy for upstream registries, OSV.dev and Trivy signature downloads – e.g. a corporate proxy.</p>
+
+{% if test %}
+<div class="mb-6 rounded-md px-4 py-3 text-sm ring-1 {{ 'bg-emerald-50 text-emerald-900 ring-emerald-200' if test.ok else 'bg-red-50 text-red-900 ring-red-200' }}">
+  <b>{{ 'Connection OK' if test.ok else 'Connection failed' }}</b> – {{ test.url }} via <code>{{ test.via }}</code>{% if test.repo %} (repository {{ test.repo }}){% endif %}:
+  {% if test.status %}HTTP {{ test.status }}{% endif %} in {{ test.ms }} ms{% if test.error %} · {{ test.error }}{% endif %}
+</div>
+{% endif %}
+
+<div class="grid lg:grid-cols-3 gap-6">
+  <div class="lg:col-span-2 space-y-6">
+  {% call card('Global outbound proxy') %}
+  <form method="post" class="p-5 space-y-4 text-sm">{{ csrf() }}
+    <label class="block"><span class="text-slate-700">HTTP proxy</span>
+      <input name="http_proxy" value="{{ mask_proxy(cfg.http_proxy) }}" placeholder="http://proxy.example.com:3128" autocomplete="off" class="{{ input }}"></label>
+    <label class="block"><span class="text-slate-700">HTTPS proxy</span>
+      <input name="https_proxy" value="{{ mask_proxy(cfg.https_proxy) }}" placeholder="empty = same as HTTP proxy" autocomplete="off" class="{{ input }}">
+      <span class="text-xs text-slate-500">Usually the same <code>http://</code> URL – HTTPS is tunnelled with CONNECT. Credentials: <code>http://user:password@host:port</code> (stored masked).</span></label>
+    <label class="block"><span class="text-slate-700">No proxy for</span>
+      <input name="no_proxy" value="{{ cfg.no_proxy }}" placeholder="localhost,127.0.0.1,.internal.example.com" class="{{ input }}">
+      <span class="text-xs text-slate-500">Comma-separated hosts, domains (<code>.example.com</code>) or IP ranges (<code>10.0.0.0/8</code>) that are reached directly.</span></label>
+    <button class="rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-4 py-2">Save</button>
+    <p class="text-xs text-slate-500">Leave both proxy fields empty for direct connections. Defaults come from the <code>HTTP_PROXY</code>, <code>HTTPS_PROXY</code> and <code>NO_PROXY</code> environment variables.</p>
+  </form>
+  {% endcall %}
+
+  {% call card('Proxy repositories') %}
+  <div class="overflow-x-auto">
+  <table class="sortable min-w-full text-sm">
+    <thead class="text-left text-slate-500 bg-slate-50"><tr>
+      <th class="px-5 py-2 font-medium">Repository</th><th class="px-3 py-2 font-medium">Upstream</th>
+      <th class="px-3 py-2 font-medium">Connection</th><th data-nosort></th></tr></thead>
+    <tbody class="divide-y divide-slate-100">
+    {% for r in repos %}
+      <tr><td class="px-5 py-2" data-sort="{{ r.name }}">{{ fmt_badge(r.format) }} <a class="text-indigo-700 hover:underline" href="{{ url_for('ui.repo_detail', name=r.name) }}">{{ r.name }}</a></td>
+        <td class="px-3 py-2 text-xs text-slate-500">{{ r.upstream_url }}</td>
+        <td class="px-3 py-2">{% if r.proxy_mode == 'none' %}direct{% elif r.proxy_mode == 'custom' %}custom: <code class="text-xs">{{ mask_proxy(r.proxy_url) }}</code>{% else %}global{% endif %}</td>
+        <td class="px-3 py-2 text-right"><a class="text-indigo-700 hover:underline" href="{{ url_for('ui.repo_edit', name=r.name) }}">Change</a></td></tr>
+    {% else %}<tr><td colspan="4" class="px-5 py-6 text-center text-slate-500">No proxy repositories.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endcall %}
+  </div>
+
+  {% call card('Test connection') %}
+  <form method="post" action="{{ url_for('ui.network_test') }}" class="p-5 space-y-3 text-sm">{{ csrf() }}
+    <label class="block"><span class="text-slate-700">URL</span>
+      <input name="url" value="https://pypi.org/simple/" class="{{ input }}"></label>
+    <label class="block"><span class="text-slate-700">Settings of</span>
+      <select name="repo" class="{{ input }}">
+        <option value="">global proxy</option>
+        {% for r in repos %}<option value="{{ r.name }}">repository {{ r.name }}</option>{% endfor %}
+      </select></label>
+    <button class="inline-flex items-center gap-2 rounded-md bg-slate-800 text-white font-medium px-4 py-2">{{ icon('network') }}Test</button>
+    <p class="text-xs text-slate-500">Uses the saved settings. Typical upstreams: https://registry-1.docker.io/v2/, https://pypi.org/simple/, https://registry.npmjs.org/, https://deb.debian.org/debian/, https://dl-cdn.alpinelinux.org/alpine/</p>
+  </form>
+  {% endcall %}
+</div>
+{% endblock %}

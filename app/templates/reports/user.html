@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_badge, sev_summary, sev_score, dt, card %}
+{% block title %}Pulls by {{ username }}{% endblock %}
+{% block content %}
+<div class="text-sm text-slate-500"><a class="hover:underline" href="{{ url_for('reports.overview') }}">Reporting</a> /</div>
+<h1 class="text-2xl font-semibold text-slate-900 mb-6">Pulls by {{ username }}</h1>
+{% set export = True %}{% set hide_user = True %}
+{% include "reports/_filters.html" %}
+{% call card(rows|length ~ ' package versions') %}
+<div class="overflow-x-auto">
+<table class="sortable min-w-full text-sm">
+  <thead class="text-left text-slate-500 bg-slate-50"><tr>
+    <th class="px-5 py-2 font-medium">Package</th><th class="px-3 py-2 font-medium">Version</th>
+    <th class="px-3 py-2 font-medium">Security</th><th class="px-3 py-2 font-medium text-right">Downloads</th>
+    <th class="px-3 py-2 font-medium">First pull</th><th class="px-3 py-2 font-medium">Last pull</th></tr></thead>
+  <tbody class="divide-y divide-slate-100">
+  {% for fmt, repo, pkg, ver, vid, n, first, last in rows %}
+    {% set v = versions.get(vid) %}
+    <tr class="hover:bg-slate-50">
+      <td class="px-5 py-2" data-sort="{{ pkg }}">{{ fmt_badge(fmt) }} {{ pkg }} <span class="text-xs text-slate-400">{{ repo }}</span></td>
+      <td class="px-3 py-2">{% if v %}<a class="text-indigo-700 hover:underline" href="{{ url_for('ui.version_detail', vid=v.id) }}">{{ ver }}</a>{% else %}{{ ver }}{% endif %}</td>
+      <td class="px-3 py-2" data-sort="{{ sev_score(v) }}">{% if v %}{{ sev_summary(v) }}{% else %}<span class="text-xs text-slate-400">deleted</span>{% endif %}</td>
+      <td class="px-3 py-2 text-right tabular-nums">{{ n }}</td>
+      <td class="px-3 py-2 text-slate-500">{{ dt(first) }}</td>
+      <td class="px-3 py-2 text-slate-500">{{ dt(last) }}</td>
+    </tr>
+  {% else %}<tr><td colspan="6" class="px-5 py-6 text-center text-slate-500">No pulls in this period.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endcall %}
+{% endblock %}

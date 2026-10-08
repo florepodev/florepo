@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_badge, dt, card, pager, sort_th %}
+{% block title %}Download log{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold text-slate-900 mb-6">Download log</h1>
+{% set export = True %}
+{% include "reports/_filters.html" %}
+{% call card() %}
+<div class="overflow-x-auto">
+<table class="min-w-full text-sm">
+  <thead class="text-left text-slate-500 bg-slate-50"><tr>
+    {{ sort_th('Time (UTC)', 'time', sort, 'px-5') }}{{ sort_th('User', 'user', sort) }}
+    {{ sort_th('Package', 'package', sort) }}{{ sort_th('Version', 'version', sort) }}
+    {{ sort_th('Repository', 'repo', sort) }}{{ sort_th('Client', 'client', sort) }}
+    {{ sort_th('Cache', 'cache', sort) }}</tr></thead>
+  <tbody class="divide-y divide-slate-100">
+  {% for e in page.items %}
+    <tr class="hover:bg-slate-50">
+      <td class="px-5 py-2 whitespace-nowrap text-slate-500">{{ dt(e.created_at) }}</td>
+      <td class="px-3 py-2"><a class="text-indigo-700 hover:underline" href="{{ url_for('reports.user_report', username=e.username, days=f.days) }}">{{ e.username }}</a>
+        <div class="text-xs text-slate-400">{{ e.ip }}</div></td>
+      <td class="px-3 py-2">{{ fmt_badge(e.format) }} {{ e.package_name }}</td>
+      <td class="px-3 py-2">{% if e.version_id %}<a class="hover:underline" href="{{ url_for('ui.version_detail', vid=e.version_id) }}">{{ e.version_name }}</a>{% else %}{{ e.version_name }} <span class="text-xs text-slate-400">(deleted)</span>{% endif %}</td>
+      <td class="px-3 py-2 text-slate-600">{{ e.repo_name }}</td>
+      <td class="px-3 py-2 text-xs text-slate-500 max-w-xs truncate" title="{{ e.user_agent }}">{{ e.user_agent }}</td>
+      <td class="px-3 py-2 text-xs">{% if e.cache_hit is none %}–{% elif e.cache_hit %}<span class="text-emerald-700">hit</span>{% else %}<span class="text-amber-700">miss</span>{% endif %}</td>
+    </tr>
+  {% else %}<tr><td colspan="7" class="px-5 py-6 text-center text-slate-500">No downloads in this period.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{{ pager(page) }}
+{% endcall %}
+{% endblock %}

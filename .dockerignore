@@ -1,0 +1,7 @@
+.git
+node_modules
+data
+**/__pycache__
+*.pyc
+.venv
+app/static/css/app.css

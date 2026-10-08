@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_badge, kind_badge, sev_summary, sev_score, dt, card %}
+{% block title %}{{ pkg.display_name }}{% endblock %}
+{% block content %}
+<div class="mb-6">
+  <div class="text-sm text-slate-500"><a class="hover:underline" href="{{ url_for('ui.repos') }}">Repositories</a> /
+    <a class="hover:underline" href="{{ url_for('ui.repo_detail', name=repo.name) }}">{{ repo.name }}</a> /</div>
+  <h1 class="text-2xl font-semibold text-slate-900 flex items-center gap-3">{{ pkg.display_name }} {{ fmt_badge(repo.format) }} {{ kind_badge(repo.kind) }}</h1>
+  {% if pkg.meta and pkg.meta.description %}<p class="text-slate-600 mt-1">{{ pkg.meta.description }}</p>{% endif %}
+  {% if repo.format == 'npm' and pkg.meta and pkg.meta['dist-tags'] %}
+  <div class="mt-2 flex flex-wrap gap-2 text-xs">{% for tag, v in pkg.meta['dist-tags'].items() %}
+    <span class="rounded bg-slate-100 px-2 py-0.5">{{ tag }}: <b>{{ v }}</b></span>{% endfor %}</div>
+  {% endif %}
+</div>
+
+{% call card(('Tags' if repo.format == 'docker' else 'Versions') ~ ' (' ~ pkg.versions|length ~ ')') %}
+<div class="overflow-x-auto">
+<table class="sortable min-w-full text-sm">
+  <thead class="text-left text-slate-500 bg-slate-50"><tr>
+    <th class="px-5 py-2 font-medium">{{ 'Tag' if repo.format == 'docker' else 'Version' }}</th>
+    {% if repo.format == 'docker' %}<th class="px-3 py-2 font-medium">Digest</th>{% else %}<th class="px-3 py-2 font-medium">Files</th>{% endif %}
+    <th class="px-3 py-2 font-medium">Security</th><th class="px-3 py-2 font-medium">SBOM</th>
+    <th class="px-3 py-2 font-medium">Downloads</th><th class="px-3 py-2 font-medium">By</th><th class="px-3 py-2 font-medium">Date</th></tr></thead>
+  <tbody class="divide-y divide-slate-100">
+  {% for v in pkg.versions %}
+    <tr class="hover:bg-slate-50">
+      <td class="px-5 py-2"><a class="font-medium text-indigo-700 hover:underline" href="{{ url_for('ui.version_detail', vid=v.id) }}">{{ v.version }}</a></td>
+      {% if repo.format == 'docker' %}<td class="px-3 py-2 font-mono text-xs text-slate-500">{{ (v.digest or '')[:19] }}…</td>
+      {% else %}<td class="px-3 py-2 text-slate-500">{{ v.files | length }}</td>{% endif %}
+      <td class="px-3 py-2" data-sort="{{ sev_score(v) }}">{{ sev_summary(v) }}</td>
+      <td class="px-3 py-2" data-sort="{{ v.component_count if v.sbom_key else -1 }}">{% if v.sbom_key %}<a class="text-indigo-700 hover:underline" href="{{ url_for('ui.version_sbom', vid=v.id) }}">{{ v.component_count }} comp.</a>{% else %}–{% endif %}</td>
+      <td class="px-3 py-2 tabular-nums">{{ v.download_count }}</td>
+      <td class="px-3 py-2 text-slate-500">{{ v.uploaded_by or '–' }}</td>
+      <td class="px-3 py-2 text-slate-500">{{ dt(v.created_at) }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endcall %}
+{% endblock %}

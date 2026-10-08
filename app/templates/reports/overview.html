@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_badge, sev_summary, sev_score, dt, card %}
+{% block title %}Reporting{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold text-slate-900 mb-6">Reporting – package usage</h1>
+{% include "reports/_filters.html" %}
+
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+  {% for label, value in [('Downloads', kpi.pulls), ('Users', kpi.users), ('Packages', kpi.packages),
+                          ('Versions', kpi.versions), ('Cache hit rate', (kpi.cache_rate ~ ' %') if kpi.cache_rate is not none else '–')] %}
+  <div class="bg-white rounded-lg shadow-sm ring-1 ring-slate-200 p-5">
+    <div class="text-sm text-slate-500">{{ label }}</div>
+    <div class="mt-1 text-3xl font-semibold text-slate-900 tabular-nums">{{ value }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="mb-6">
+{% call card('Downloads per day') %}
+<div class="p-5">
+  {% if daily %}
+  <div class="flex items-end gap-px h-36">
+    {% for d, n in daily %}
+    <div class="flex-1 min-w-0 bg-indigo-500 hover:bg-indigo-700 rounded-t" style="height: {{ (100 * n / peak) | round(1) }}%" title="{{ d }}: {{ n }} downloads"></div>
+    {% endfor %}
+  </div>
+  <div class="flex justify-between text-xs text-slate-400 mt-1"><span>{{ daily[0][0] }}</span><span>max. {{ peak }}/day</span><span>{{ daily[-1][0] }}</span></div>
+  {% else %}<div class="text-sm text-slate-500">No downloads in this period.</div>{% endif %}
+</div>
+{% endcall %}
+</div>
+
+<div class="mb-6">
+{% call card('⚠ Vulnerable versions in use') %}
+<div class="overflow-x-auto">
+<table class="sortable min-w-full text-sm">
+  <thead class="text-left text-slate-500 bg-slate-50"><tr>
+    <th class="px-5 py-2 font-medium">Artifact</th><th class="px-3 py-2 font-medium">Security</th>
+    <th class="px-3 py-2 font-medium">Downloads</th><th class="px-3 py-2 font-medium">Pulled by</th>
+    <th class="px-3 py-2 font-medium">Last pull</th></tr></thead>
+  <tbody class="divide-y divide-slate-100">
+  {% for v, a in vuln_versions %}
+    <tr class="hover:bg-slate-50 align-top">
+      <td class="px-5 py-2" data-sort="{{ v.package.display_name }}">{{ fmt_badge(v.package.repository.format) }}
+        <a class="text-indigo-700 hover:underline" href="{{ url_for('ui.version_detail', vid=v.id) }}">{{ v.package.display_name }}@{{ v.version }}</a>
+        <div class="text-xs text-slate-400">{{ v.package.repository.name }}</div></td>
+      <td class="px-3 py-2" data-sort="{{ sev_score(v) }}">{{ sev_summary(v) }}</td>
+      <td class="px-3 py-2 tabular-nums">{{ a.pulls }}</td>
+      <td class="px-3 py-2" data-sort="{{ a.users | length }}">{% for u in a.users | sort %}<a class="inline-block mr-1 mb-1 rounded bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 text-xs" href="{{ url_for('reports.user_report', username=u, days=f.days) }}">{{ u }}</a>{% endfor %}</td>
+      <td class="px-3 py-2 text-slate-500 whitespace-nowrap">{{ dt(a.last) }}</td>
+    </tr>
+  {% else %}<tr><td colspan="5" class="px-5 py-6 text-center text-slate-500">No vulnerable versions (critical/high) pulled in this period.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endcall %}
+</div>
+
+<div class="grid lg:grid-cols-2 gap-6">
+  {% call card('Most used packages') %}
+  <div class="overflow-x-auto">
+  <table class="sortable min-w-full text-sm">
+    <thead class="text-left text-slate-500 bg-slate-50"><tr>
+      <th class="px-5 py-2 font-medium">Package</th><th class="px-3 py-2 font-medium text-right">Downloads</th>
+      <th class="px-3 py-2 font-medium text-right">Users</th><th class="px-3 py-2 font-medium text-right">Versions</th></tr></thead>
+    <tbody class="divide-y divide-slate-100">
+    {% for fmt, repo, name, pid, n, users, vers, last in top_packages %}
+      <tr class="hover:bg-slate-50">
+        <td class="px-5 py-2" data-sort="{{ name }}">{{ fmt_badge(fmt) }}
+          {% if pid %}<a class="text-indigo-700 hover:underline" href="{{ url_for('ui.package_detail', pid=pid) }}">{{ name }}</a>{% else %}{{ name }}{% endif %}
+          <span class="text-xs text-slate-400">{{ repo }}</span></td>
+        <td class="px-3 py-2 text-right tabular-nums">{{ n }}</td>
+        <td class="px-3 py-2 text-right tabular-nums">{{ users }}</td>
+        <td class="px-3 py-2 text-right tabular-nums">{{ vers }}</td>
+      </tr>
+    {% else %}<tr><td colspan="4" class="px-5 py-6 text-center text-slate-500">No data.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endcall %}
+
+  {% call card('Most active users') %}
+  <div class="overflow-x-auto">
+  <table class="sortable min-w-full text-sm">
+    <thead class="text-left text-slate-500 bg-slate-50"><tr>
+      <th class="px-5 py-2 font-medium">User</th><th class="px-3 py-2 font-medium text-right">Downloads</th>
+      <th class="px-3 py-2 font-medium text-right">Packages</th><th class="px-3 py-2 font-medium">Last pull</th></tr></thead>
+    <tbody class="divide-y divide-slate-100">
+    {% for user, n, pkgs, last in top_users %}
+      <tr class="hover:bg-slate-50">
+        <td class="px-5 py-2"><a class="text-indigo-700 hover:underline" href="{{ url_for('reports.user_report', username=user, days=f.days) }}">{{ user }}</a></td>
+        <td class="px-3 py-2 text-right tabular-nums">{{ n }}</td>
+        <td class="px-3 py-2 text-right tabular-nums">{{ pkgs }}</td>
+        <td class="px-3 py-2 text-slate-500">{{ dt(last) }}</td>
+      </tr>
+    {% else %}<tr><td colspan="4" class="px-5 py-6 text-center text-slate-500">No data.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endcall %}
+</div>
+{% endblock %}

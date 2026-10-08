@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% from "_macros.html" import card, csrf, dt, sev_badge, sort_th, pager, fmt_badge %}
+{% block title %}Notifications{% endblock %}
+{% block content %}
+{% set input = "mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" %}
+<h1 class="text-2xl font-semibold text-slate-900 mb-1">Notifications</h1>
+<p class="text-slate-500 text-sm mb-6">E-mail alerts when periodic re-scans (new signatures) reveal new vulnerabilities above a threshold. Alerts of one scan cycle are batched into a single e-mail.</p>
+
+{% if not smtp_ok %}
+<div class="mb-6 rounded-md bg-amber-50 ring-1 ring-amber-200 text-amber-900 px-4 py-3 text-sm">
+  SMTP is not configured. Set <code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USERNAME</code>, <code>SMTP_PASSWORD</code>, <code>SMTP_FROM</code> and <code>SMTP_SECURITY</code> (starttls | ssl | none) in <code>.env</code> and restart.</div>
+{% endif %}
+
+<div class="grid lg:grid-cols-3 gap-6 mb-6">
+  <div class="lg:col-span-2">
+  {% call card('Alert rule') %}
+  <form method="post" class="p-5 space-y-4 text-sm">{{ csrf() }}
+    <label class="flex items-center gap-2 font-medium"><input type="checkbox" name="enabled" {{ 'checked' if cfg.enabled }}> E-mail alerting enabled</label>
+    <label class="block"><span class="text-slate-700">Recipients</span>
+      <input name="recipients" value="{{ cfg.recipients | join(', ') }}" placeholder="security@example.com, devops@example.com" class="{{ input }}"></label>
+    <div class="grid sm:grid-cols-2 gap-4">
+      <label class="block"><span class="text-slate-700">Alert from severity (threshold)</span>
+        <select name="threshold" class="{{ input }}">
+          {% for s in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] %}<option value="{{ s }}" {{ 'selected' if cfg.threshold == s }}>{{ s }} and above</option>{% endfor %}
+        </select></label>
+      <label class="block"><span class="text-slate-700">Repositories</span>
+        <select name="repos" multiple size="4" class="{{ input }}">
+          {% for r in repos %}<option value="{{ r.name }}" {{ 'selected' if r.name in cfg.repos }}>{{ r.name }} ({{ r.format }})</option>{% endfor %}
+        </select>
+        <span class="text-xs text-slate-500">None selected = all repositories</span></label>
+    </div>
+    <label class="flex items-start gap-2"><input type="checkbox" name="only_new" class="mt-1" {{ 'checked' if cfg.only_new }}>
+      <span>Only new findings <span class="block text-xs text-slate-500">ignore vulnerabilities that were already reported by the previous scan of the same version</span></span></label>
+    <label class="flex items-start gap-2"><input type="checkbox" name="include_uploads" class="mt-1" {{ 'checked' if cfg.include_uploads }}>
+      <span>Also alert on new uploads / cache fills <span class="block text-xs text-slate-500">by default only periodic re-scans of existing artifacts trigger alerts</span></span></label>
+    <button class="rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-4 py-2">Save</button>
+  </form>
+  {% endcall %}
+  </div>
+
+  <div class="space-y-6">
+  {% call card('SMTP') %}
+  <dl class="p-5 text-sm space-y-2">
+    <div class="flex justify-between"><dt class="text-slate-500">Server</dt><dd>{{ (config.SMTP_HOST ~ ':' ~ config.SMTP_PORT) if smtp_ok else '–' }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">Security</dt><dd>{{ config.SMTP_SECURITY }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">Sender</dt><dd>{{ config.SMTP_FROM }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">Login</dt><dd>{{ config.SMTP_USERNAME or 'none' }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">Queued alerts</dt><dd>{{ pending }}</dd></div>
+  </dl>
+  <form method="post" action="{{ url_for('ui.notifications_test') }}" class="px-5 pb-5 flex gap-2 text-sm">{{ csrf() }}
+    <input name="to" placeholder="{{ cfg.recipients[0] if cfg.recipients else 'you@example.com' }}" class="flex-1 rounded-md border border-slate-300 px-2 py-1.5">
+    <button class="rounded-md bg-slate-800 text-white px-3 disabled:opacity-40" {{ 'disabled' if not smtp_ok }}>Send test</button>
+  </form>
+  {% if pending %}
+  <form method="post" action="{{ url_for('ui.notifications_flush') }}" class="px-5 pb-5">{{ csrf() }}
+    <button class="text-sm text-indigo-700 hover:underline">Send queued alerts now</button></form>
+  {% endif %}
+  {% endcall %}
+  </div>
+</div>
+
+{% call card('Alert history') %}
+<div class="overflow-x-auto">
+<table class="min-w-full text-sm">
+  <thead class="text-left text-slate-500 bg-slate-50"><tr>
+    {{ sort_th('Detected (UTC)', 'time', sort, 'px-5') }}{{ sort_th('Artifact', 'artifact', sort) }}
+    {{ sort_th('Max severity', 'severity', sort) }}<th class="px-3 py-2 font-medium">New findings</th>
+    {{ sort_th('Trigger', 'trigger', sort) }}{{ sort_th('Sent', 'sent', sort) }}</tr></thead>
+  <tbody class="divide-y divide-slate-100">
+  {% for n in page.items %}
+    <tr class="align-top hover:bg-slate-50">
+      <td class="px-5 py-2 text-slate-500 whitespace-nowrap">{{ dt(n.created_at) }}</td>
+      <td class="px-3 py-2">{% if n.version_id %}<a class="text-indigo-700 hover:underline" href="{{ url_for('ui.version_detail', vid=n.version_id) }}">{{ n.package_name }}@{{ n.version_name }}</a>{% else %}{{ n.package_name }}@{{ n.version_name }}{% endif %}
+        <div class="text-xs text-slate-400">{{ n.repo_name }}</div></td>
+      <td class="px-3 py-2">{{ sev_badge(n.max_severity) }}</td>
+      <td class="px-3 py-2 text-xs">{% for f in n.findings[:6] %}<span class="inline-block mr-1 mb-1 rounded bg-slate-100 px-1.5 py-0.5">{{ f.id }}</span>{% endfor %}{% if n.findings | length > 6 %}<span class="text-slate-400">+{{ n.findings | length - 6 }}</span>{% endif %}</td>
+      <td class="px-3 py-2 text-slate-600">{{ n.trigger }}</td>
+      <td class="px-3 py-2 text-xs">{% if n.sent_at %}<span class="text-emerald-700">{{ dt(n.sent_at) }}</span><div class="text-slate-400">{{ n.recipients }}</div>
+        {% elif n.error %}<span class="text-red-700">failed ({{ n.attempts }}×)</span><div class="text-red-600 break-words max-w-xs">{{ n.error[:200] }}</div>
+        {% else %}<span class="text-indigo-700">queued</span>{% endif %}</td>
+    </tr>
+  {% else %}<tr><td colspan="6" class="px-5 py-6 text-center text-slate-500">No alerts yet.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{{ pager(page) }}
+{% endcall %}
+{% endblock %}

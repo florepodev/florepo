@@ -1,0 +1,26 @@
+# Blob storage on an NFS share (NFSv4.1+ recommended) – usage:
+#   docker compose -f docker-compose.yml -f docker-compose.nfs.yml up -d
+# or in .env:  COMPOSE_FILE=docker-compose.yml:docker-compose.nfs.yml
+#
+# Only the artifact store (/data/storage) moves to the share; database, signing keys and the Trivy cache stay
+# on the local "data" volume. The containers run as uid 1000 – the export must allow it to write, e.g.
+#   /export/florepo  10.0.0.0/24(rw,sync,no_subtree_check,all_squash,anonuid=1000,anongid=1000)
+# Several Florepo hosts may share the same export (uploads are written to a temp file and renamed).
+services:
+  nginx:
+    volumes:
+      - storage:/data/storage:ro
+  web:
+    volumes:
+      - storage:/data/storage
+  worker:
+    volumes:
+      - storage:/data/storage
+
+volumes:
+  storage:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: "addr=${NFS_SERVER:?set NFS_SERVER in .env},nfsvers=${NFS_VERSION:-4.1},rw,hard,noatime,timeo=600,retrans=2"
+      device: ":${NFS_EXPORT:?set NFS_EXPORT in .env (e.g. /export/florepo)}"

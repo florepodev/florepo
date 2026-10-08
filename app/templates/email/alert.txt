@@ -1,0 +1,9 @@
+Florepo – security alert
+
+{{ total }} new finding(s) at or above {{ threshold }} were detected in {{ notifications | length }} artifact(s).
+{% for n in notifications %}
+== {{ n.repo_name }}/{{ n.package_name }}@{{ n.version_name }} ({{ n.trigger }})
+   {{ base_url }}/versions/{{ n.version_id }}
+{% for f in n.findings %}   - [{{ f.severity }}] {{ f.id }} in {{ f.component }} {{ f.installed }}{% if n.trigger == "malware" %} – {{ f.title }}{% elif f.fixed %} → fixed in {{ f.fixed }}{% endif %}
+{% endfor %}{% endfor %}
+Manage alert rules: {{ base_url }}/admin/notifications

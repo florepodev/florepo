@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% from "_macros.html" import card, csrf, fmt_badge, kind_badge, size %}
+{% block title %}Storage & quotas{% endblock %}
+{% block content %}
+{% set input = "mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" %}
+<h1 class="text-2xl font-semibold text-slate-900 mb-6">Storage & quotas</h1>
+
+<div class="grid lg:grid-cols-3 gap-6 mb-6">
+  {% call card('Blob storage') %}
+  <dl class="p-5 text-sm space-y-2">
+    <div class="flex justify-between gap-2"><dt class="text-slate-500">Backend</dt>
+      <dd class="font-medium">{{ {'fs': 'File system (local disk / NFS)', 's3': 'S3 object storage'}[backend.backend] }}</dd></div>
+    <div><dt class="text-slate-500">Location</dt><dd class="font-mono text-xs break-all">{{ backend.location }}</dd></div>
+    {% if backend.endpoint %}<div class="flex justify-between gap-2"><dt class="text-slate-500">Endpoint</dt><dd class="font-mono text-xs break-all">{{ backend.endpoint }}</dd></div>{% endif %}
+    {% if backend.serve %}<div class="flex justify-between"><dt class="text-slate-500">Downloads</dt><dd>{{ {'proxy': 'streamed by nginx', 'redirect': 'pre-signed redirect', 'stream': 'streamed by the app'}[backend.serve] }}</dd></div>{% endif %}
+    <div><dt class="text-slate-500">Local staging</dt><dd class="font-mono text-xs break-all">{{ staging }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">Stored artifacts (logical)</dt><dd class="tabular-nums">{{ size(total) }}</dd></div>
+    {% if check %}
+    <div class="rounded-md p-2 text-xs {{ 'bg-emerald-50 text-emerald-800' if check.ok else 'bg-red-50 text-red-800' }}">
+      {{ 'Write / read / delete test passed' if check.ok else 'Check failed: ' ~ (check.error or 'read back mismatch') }}
+      {% if check.free_bytes is defined %}· {{ size(check.free_bytes) }} free of {{ size(check.total_bytes) }}{% endif %}</div>
+    {% endif %}
+    <a href="{{ url_for('ui.storage_admin', check=1) }}" class="inline-block rounded-md px-3 py-1.5 ring-1 ring-slate-300 hover:bg-slate-50">Run storage check</a>
+    <p class="text-xs text-slate-500">The backend is configured with environment variables (<code>STORAGE_BACKEND</code>, <code>STORAGE_PATH</code>, <code>S3_*</code>) – see Setup guides → Storage.</p>
+  </dl>
+  {% endcall %}
+
+  <div class="lg:col-span-2">
+  {% call card('User quotas') %}
+  <form method="post" class="p-5 text-sm space-y-3">{{ csrf() }}
+    <label class="block"><span class="text-slate-700 font-medium">Default quota per user</span>
+      <div class="flex gap-2 items-center"><input name="default_user_quota" value="{{ size(default_quota) if default_quota else '' }}" placeholder="unlimited – e.g. 10G" class="{{ input }} max-w-xs">
+      <button class="rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-4 py-2 mt-1">Save</button></div>
+      <span class="text-xs text-slate-500">Total size a deployer may upload to hosted repositories. Applies to all non-admin users without an individual quota (set it on the user's page).</span></label>
+  </form>
+  <div class="overflow-x-auto border-t border-slate-100">
+  <table class="sortable min-w-full text-sm">
+    <thead class="text-left text-slate-500 bg-slate-50"><tr><th class="px-5 py-2 font-medium">User</th><th class="px-3 py-2 font-medium">Uploaded</th>
+      <th class="px-3 py-2 font-medium">Quota</th><th class="px-3 py-2 font-medium">Used</th></tr></thead>
+    <tbody class="divide-y divide-slate-100">
+    {% for u, used, limit in user_rows %}
+      <tr><td class="px-5 py-2"><a class="text-indigo-700 hover:underline" href="{{ url_for('ui.user_edit', uid=u.id) }}">{{ u.username }}</a></td>
+        <td class="px-3 py-2 tabular-nums" data-sort="{{ used }}">{{ size(used) }}</td>
+        <td class="px-3 py-2 tabular-nums" data-sort="{{ limit or 0 }}">{{ size(limit) if limit else 'unlimited' }}{% if u.quota_bytes is none and limit %} <span class="text-xs text-slate-400">default</span>{% endif %}</td>
+        <td class="px-3 py-2 tabular-nums" data-sort="{{ (100 * used / limit) if limit else 0 }}">{% if limit %}{% set pct = (100 * used / limit) | round(1) %}<span class="{{ 'text-red-700 font-semibold' if pct >= 90 }}">{{ pct }} %</span>{% else %}–{% endif %}</td></tr>
+    {% else %}<tr><td colspan="4" class="px-5 py-6 text-center text-slate-500">No deployers yet.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endcall %}
+  </div>
+</div>
+
+{% call card('Repositories') %}
+<div class="overflow-x-auto">
+<table class="sortable min-w-full text-sm">
+  <thead class="text-left text-slate-500 bg-slate-50"><tr><th class="px-5 py-2 font-medium">Repository</th><th class="px-3 py-2 font-medium">Format</th>
+    <th class="px-3 py-2 font-medium">Type</th><th class="px-3 py-2 font-medium">Used</th><th class="px-3 py-2 font-medium">Quota / cache limit</th>
+    <th class="px-3 py-2 font-medium">Usage</th><th data-nosort></th></tr></thead>
+  <tbody class="divide-y divide-slate-100">
+  {% for r, used in rows %}
+    {% set pct = (100 * used / r.quota_bytes) if r.quota_bytes else None %}
+    <tr><td class="px-5 py-2"><a class="text-indigo-700 hover:underline" href="{{ url_for('ui.repo_detail', name=r.name) }}">{{ r.name }}</a></td>
+      <td class="px-3 py-2">{{ fmt_badge(r.format) }}</td><td class="px-3 py-2" data-sort="{{ r.kind }}">{{ kind_badge(r.kind) }}</td>
+      <td class="px-3 py-2 tabular-nums" data-sort="{{ used }}">{{ size(used) }}</td>
+      <td class="px-3 py-2 tabular-nums" data-sort="{{ r.quota_bytes or 0 }}">{{ size(r.quota_bytes) if r.quota_bytes else 'unlimited' }}</td>
+      <td class="px-3 py-2 w-48" data-sort="{{ pct or 0 }}">{% if pct is not none %}
+        <div class="flex items-center gap-2"><div class="h-2 flex-1 rounded bg-slate-100 overflow-hidden"><div class="h-2 {{ 'bg-red-500' if pct >= 90 else 'bg-amber-400' if pct >= 75 else 'bg-emerald-500' }}" style="width: {{ [pct, 100] | min }}%"></div></div>
+        <span class="text-xs tabular-nums">{{ pct | round(0) | int }} %</span></div>{% else %}<span class="text-slate-400 text-xs">–</span>{% endif %}</td>
+      <td class="px-3 py-2 text-right"><a class="text-indigo-700 hover:underline text-xs" href="{{ url_for('ui.repo_edit', name=r.name) }}">Edit quota</a></td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="px-5 py-3 text-xs text-slate-500 border-t border-slate-100">Usage is the logical size of the stored artifacts (Docker: distinct layers per repository). Blobs shared between repositories are stored only once on disk.</p>
+{% endcall %}
+{% endblock %}

@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+data/
+app/static/css/app.css
+.env
+.env.bak.*
+.pytest_cache/
+*.log

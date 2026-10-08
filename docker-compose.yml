@@ -1,0 +1,130 @@
+# Compose project name -> containers florepo-web-1 etc. and volumes florepo_data / florepo_pgdata
+name: florepo
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    command: ["postgres", "-c", "max_connections=500", "-c", "shared_buffers=256MB"]
+    environment:
+      POSTGRES_DB: florepo
+      POSTGRES_USER: florepo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-florepo}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U florepo"]
+      interval: 5s
+      retries: 10
+
+  # Entry point: static assets + file downloads straight from disk, everything else -> web
+  nginx:
+    build:
+      context: .
+      target: nginx
+    image: florepo-nginx:latest
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    volumes:
+      - data:/data:ro
+    depends_on:
+      web:
+        condition: service_healthy
+
+  web:
+    build: .
+    image: florepo:latest
+    restart: unless-stopped
+    command: web
+    expose:
+      - "8080"
+    environment: &env
+      DATABASE_URL: postgresql+psycopg://florepo:${POSTGRES_PASSWORD:-florepo}@db:5432/florepo
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      BASE_URL: ${BASE_URL:-http://localhost:8080}
+      BEHIND_PROXY: "true"
+      ACCEL_REDIRECT: "true"
+      WEB_WORKERS: ${WEB_WORKERS:-}
+      ACCESS_LOG: ${ACCESS_LOG:-true}
+      PROXY_METADATA_TTL: ${PROXY_METADATA_TTL:-300}
+      WEB_WORKER_CONNECTIONS: ${WEB_WORKER_CONNECTIONS:-1000}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-15}
+      OSV_ENABLED: ${OSV_ENABLED:-true}
+      RESCAN_INTERVAL_HOURS: ${RESCAN_INTERVAL_HOURS:-24}
+      TRIVY_DB_UPDATE_HOURS: ${TRIVY_DB_UPDATE_HOURS:-12}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-florepo@localhost}
+      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      # outbound proxy defaults (editable in the UI under Administration → Network)
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,::1,clamav}
+      # blob storage: fs (volume / NFS mount, see docker-compose.nfs.yml) or s3
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-fs}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_PREFIX: ${S3_PREFIX:-}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-auto}
+      S3_SERVE: ${S3_SERVE:-proxy}
+      S3_VERIFY_TLS: ${S3_VERIFY_TLS:-true}
+      # ClamAV (enable under Administration → Scanner & DB; start clamd with COMPOSE_PROFILES=clamav)
+      CLAMAV_ENABLED: ${CLAMAV_ENABLED:-false}
+      CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
+      CLAMAV_PORT: ${CLAMAV_PORT:-3310}
+    volumes:
+      - data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    image: florepo:latest
+    restart: unless-stopped
+    command: worker
+    # several workers scan in parallel (one of them is elected leader for the maintenance tasks)
+    deploy:
+      replicas: ${WORKER_REPLICAS:-1}
+    healthcheck:
+      disable: true
+    environment: *env
+    volumes:
+      - data:/data
+    depends_on:
+      web:
+        condition: service_healthy
+
+  # Optional malware scanner (GPL-2.0, separate container): COMPOSE_PROFILES=clamav in .env
+  # needs ~1.5-3 GB RAM for the signatures; freshclam updates them automatically
+  clamav:
+    image: clamav/clamav:${CLAMAV_IMAGE_TAG:-stable}
+    profiles: ["clamav"]
+    restart: unless-stopped
+    environment:
+      CLAMD_CONF_StreamMaxLength: 2000M
+      CLAMD_CONF_MaxFileSize: 2000M
+      CLAMD_CONF_MaxScanSize: 4000M
+      CLAMD_CONF_ReadTimeout: "300"
+      CLAMD_CONF_MaxThreads: "12"
+      FRESHCLAM_CHECKS: "12"
+    volumes:
+      - clamav:/var/lib/clamav
+    healthcheck:
+      test: ["CMD-SHELL", "clamdcheck.sh"]
+      interval: 60s
+      start_period: 600s
+      retries: 3
+
+volumes:
+  data:
+  pgdata:
+  clamav:

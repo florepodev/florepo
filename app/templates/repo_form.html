@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf, card %}
+{% block title %}{{ 'Edit repository' if repo else 'New repository' }}{% endblock %}
+{% block content %}
+{% set input = "mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" %}
+{% set os_format = repo and repo.format in ['deb', 'rpm', 'apk'] %}
+<h1 class="text-2xl font-semibold text-slate-900 mb-6">{{ 'Edit repository “' ~ repo.name ~ '”' if repo else 'New repository' }}</h1>
+<form method="post" class="max-w-2xl space-y-6" id="repo-form">
+  {{ csrf() }}
+  {% call card('General') %}
+  <div class="p-5 grid sm:grid-cols-2 gap-4">
+    {% if not repo %}
+    <label class="block text-sm sm:col-span-2"><span class="text-slate-700">Name</span>
+      <input name="name" required pattern="[a-z0-9][a-z0-9._\-]{0,63}" placeholder="e.g. docker-hub, pypi-internal, debian-remote" class="{{ input }}">
+      <span class="text-xs text-slate-500">Part of the URL: /&lt;format&gt;/&lt;name&gt;/… (e.g. /maven/libs-release/, /go/golang/, /nuget/nuget-org/index.json) – Docker: &lt;host&gt;/&lt;name&gt;/image</span></label>
+    <label class="block text-sm"><span class="text-slate-700">Format</span>
+      <select name="format" id="format" class="{{ input }}">
+        {% for f, label in FORMAT_LABELS.items() %}<option value="{{ f }}">{{ label }}</option>{% endfor %}
+      </select></label>
+    <label class="block text-sm"><span class="text-slate-700">Type</span>
+      <select name="kind" id="kind" class="{{ input }}">
+        <option value="hosted">Hosted – publish your own artifacts</option>
+        <option value="proxy">Proxy – pass-through with cache</option>
+      </select></label>
+    {% endif %}
+    <label class="block text-sm sm:col-span-2"><span class="text-slate-700">Description</span>
+      <input name="description" value="{{ repo.description if repo else '' }}" class="{{ input }}"></label>
+    <label class="block text-sm sm:col-span-2"><span class="text-slate-700">Quota</span>
+      <input name="quota" value="{{ human_size(repo.quota_bytes) if repo and repo.quota_bytes else '' }}" placeholder="unlimited – e.g. 500M, 20G, 1T" class="{{ input }} max-w-xs">
+      <span class="text-xs text-slate-500" id="quota-help">Hosted: uploads that would exceed the quota are rejected with HTTP 413. Proxy: maximum cache size – least recently used artifacts are evicted (hourly) down to 90 %.</span></label>
+    <label id="distro-field" class="block text-sm sm:col-span-2 {{ '' if os_format or not repo else 'hidden' }}"><span class="text-slate-700">Distribution (for vulnerability scanning)</span>
+      <input name="distro" value="{{ repo.distro or '' if repo else '' }}" placeholder="e.g. debian:12, ubuntu:24.04, alpine:3.20, rocky:9, alma:9" class="{{ input }}">
+      <span class="text-xs text-slate-500">Vulnerabilities of OS packages depend on the release. Leave empty to detect it from paths/versions (Alpine v3.x paths, Debian suites, RPM .elN releases).</span></label>
+  </div>
+  {% endcall %}
+
+  <div id="proxy-section" class="{{ '' if (repo and repo.is_proxy) or not repo else 'hidden' }}">
+  {% call card('Upstream (proxy cache)') %}
+  <div class="p-5 grid sm:grid-cols-2 gap-4">
+    <label class="block text-sm sm:col-span-2"><span class="text-slate-700">Upstream URL</span>
+      <input name="upstream_url" id="upstream_url" value="{{ repo.upstream_url if repo and repo.upstream_url else '' }}" placeholder="https://registry-1.docker.io" class="{{ input }}">
+      <span class="text-xs text-slate-500">Docker Hub: https://registry-1.docker.io · PyPI: https://pypi.org · npm: https://registry.npmjs.org · Maven Central: https://repo1.maven.org/maven2 · Go: https://proxy.golang.org · NuGet: https://api.nuget.org/v3/index.json · crates.io: https://index.crates.io · Helm: chart repository URL (index.yaml) · Generic: any HTTP(S) base URL · Debian: http://deb.debian.org/debian · Ubuntu: http://archive.ubuntu.com/ubuntu · Rocky: https://dl.rockylinux.org/pub/rocky · Alpine: https://dl-cdn.alpinelinux.org/alpine</span></label>
+    <label class="block text-sm"><span class="text-slate-700">Upstream username (optional)</span>
+      <input name="upstream_username" value="{{ repo.upstream_username or '' if repo else '' }}" autocomplete="off" class="{{ input }}"></label>
+    <label class="block text-sm"><span class="text-slate-700">Upstream password / token</span>
+      <input name="upstream_password" type="password" autocomplete="new-password" placeholder="{{ '•••••• (set)' if repo and repo.upstream_password else '' }}" class="{{ input }}"></label>
+    {% if repo and repo.upstream_password %}
+    <label class="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" name="clear_upstream_password"> Remove password</label>
+    {% endif %}
+    <label class="block text-sm sm:col-span-2 border-t border-slate-100 pt-4"><span class="text-slate-700 font-medium">Keep cached packages on disk for</span>
+      <div class="flex items-center gap-2">
+        <input name="cache_retention_days" type="number" min="0" max="3650" value="{{ repo.cache_retention_days or 0 if repo else 0 }}" class="{{ input }} max-w-32">
+        <span class="text-slate-600 mt-1">days after the last download</span>
+      </div>
+      <span class="text-xs text-slate-500">Cached artifacts that were not requested within this period are deleted automatically (hourly) and fetched again from the upstream when needed. 0 = keep forever.</span></label>
+    {% set pm = repo.proxy_mode if repo else 'global' %}
+    <fieldset class="sm:col-span-2 text-sm space-y-2 border-t border-slate-100 pt-4">
+      <legend class="text-slate-700 font-medium">Outbound connection to the upstream</legend>
+      <label class="flex items-center gap-2"><input type="radio" name="proxy_mode" value="global" {{ 'checked' if pm == 'global' }}>
+        Use the global HTTP/HTTPS proxy <a class="text-indigo-700 underline text-xs" href="{{ url_for('ui.network_admin') }}">(Administration → Network)</a></label>
+      <label class="flex items-center gap-2"><input type="radio" name="proxy_mode" value="none" {{ 'checked' if pm == 'none' }}> Direct connection (no proxy)</label>
+      <label class="flex items-center gap-2"><input type="radio" name="proxy_mode" value="custom" {{ 'checked' if pm == 'custom' }}> Custom proxy for this repository</label>
+      <input name="proxy_url" value="{{ mask_proxy(repo.proxy_url) if repo and repo.proxy_url else '' }}" placeholder="http://user:password@proxy.example.com:3128" autocomplete="off" class="{{ input }}">
+    </fieldset>
+  </div>
+  {% endcall %}
+  </div>
+
+  {% call card('Access & security policy') %}
+  <div class="p-5 space-y-4 text-sm">
+    <label class="flex items-start gap-2"><input type="checkbox" name="public" class="mt-1" {{ 'checked' if repo and repo.public }}>
+      <span><b>Publicly readable</b><br><span class="text-slate-500">Anonymous downloads without login (writing always requires deploy permission)</span></span></label>
+    <label class="flex items-start gap-2"><input type="checkbox" name="allow_redeploy" id="allow_redeploy" class="mt-1" {{ 'checked' if (repo and repo.allow_redeploy) or not repo }}>
+      <span><b>Allow overwrite</b><br><span class="text-slate-500">Existing versions/tags may be published again (required for Docker “latest”)</span></span></label>
+    <label class="block"><span class="text-slate-700 font-semibold">Block downloads from severity</span>
+      <select name="block_severity" class="{{ input }}">
+        <option value="">never block – report only</option>
+        {% for s in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] %}
+        <option value="{{ s }}" {{ 'selected' if repo and repo.block_severity == s }}>{{ s }} and above</option>
+        {% endfor %}
+      </select>
+      <span class="text-xs text-slate-500">Blocked versions are removed from indexes (pip/npm/hosted repositories) and downloads are rejected with HTTP 403.</span></label>
+  </div>
+  {% endcall %}
+
+  <div class="flex gap-3">
+    <button class="rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-2">Save</button>
+    <a href="{{ url_for('ui.repo_detail', name=repo.name) if repo else url_for('ui.repos') }}" class="rounded-md px-4 py-2 text-sm ring-1 ring-slate-300 hover:bg-slate-50">Cancel</a>
+  </div>
+</form>
+
+{% if repo %}
+<form method="post" action="{{ url_for('ui.repo_delete', name=repo.name) }}" class="max-w-2xl mt-10 rounded-lg ring-1 ring-red-200 bg-red-50 p-5 text-sm space-y-3">
+  {{ csrf() }}
+  <div class="font-semibold text-red-800">Delete repository</div>
+  <p class="text-red-700">All packages, versions and scan results are removed. The download history is kept for reports.</p>
+  <input name="confirm" placeholder="{{ repo.name }}" class="rounded-md border border-red-300 px-3 py-2">
+  <button class="rounded-md bg-red-600 hover:bg-red-500 text-white font-medium px-4 py-2">Delete permanently</button>
+</form>
+{% endif %}
+
+{% if not repo %}
+<script>
+  const upstreams = {{ upstreams | tojson }};
+  upstreams.docker = 'https://registry-1.docker.io';
+  const fmt = document.getElementById('format'), kind = document.getElementById('kind');
+  const sec = document.getElementById('proxy-section'), url = document.getElementById('upstream_url');
+  const redeploy = document.getElementById('allow_redeploy'), distro = document.getElementById('distro-field');
+  function sync() {
+    sec.classList.toggle('hidden', kind.value !== 'proxy');
+    distro.classList.toggle('hidden', !['deb', 'rpm', 'apk'].includes(fmt.value));
+    url.placeholder = upstreams[fmt.value] || 'https://downloads.example.com/files';
+    redeploy.checked = fmt.value === 'docker';
+  }
+  fmt.onchange = kind.onchange = sync; sync();
+</script>
+{% endif %}
+{% endblock %}

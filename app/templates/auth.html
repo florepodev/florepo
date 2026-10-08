@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% from "_macros.html" import card, csrf, dt %}
+{% block title %}Authentication{% endblock %}
+{% block content %}
+{% set input = "mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" %}
+<h1 class="text-2xl font-semibold text-slate-900 mb-2">Authentication</h1>
+<p class="text-sm text-slate-600 mb-6 max-w-3xl">Local accounts always work (e.g. the bootstrap admin). With LDAP enabled, users that have no local
+  account sign in with their directory credentials – in the web UI, with <code>docker login</code> and with package managers (HTTP Basic).
+  Their role and write permissions follow the group mapping below. API tokens work for both kinds of accounts.</p>
+
+<form method="post" id="ldap-form" class="space-y-6 max-w-4xl">{{ csrf() }}
+{% call card('LDAP / Active Directory') %}
+<div class="p-5 grid sm:grid-cols-2 gap-4 text-sm">
+  <label class="flex items-start gap-2 sm:col-span-2"><input type="checkbox" name="enabled" class="mt-1" {{ 'checked' if cfg.enabled }}>
+    <span><b>Enable LDAP authentication</b></span></label>
+  <label class="block sm:col-span-2"><span class="text-slate-700">Server URLs (tried in order)</span>
+    <input name="server_urls" value="{{ cfg.server_urls | join(' ') }}" placeholder="ldaps://dc1.corp.example.com ldaps://dc2.corp.example.com" class="{{ input }}">
+    <span class="text-xs text-slate-500">ldaps:// (port 636) or ldap:// (389, optionally with StartTLS). Several URLs separated by spaces = failover.</span></label>
+  <label class="flex items-center gap-2"><input type="checkbox" name="start_tls" {{ 'checked' if cfg.start_tls }}> StartTLS on ldap:// connections</label>
+  <label class="flex items-center gap-2"><input type="checkbox" name="verify_tls" {{ 'checked' if cfg.verify_tls }}> Verify the server certificate</label>
+  <label class="block sm:col-span-2"><span class="text-slate-700">CA certificate (PEM, optional)</span>
+    <textarea name="ca_cert" rows="3" placeholder="-----BEGIN CERTIFICATE-----" class="{{ input }} font-mono text-xs">{{ cfg.ca_cert }}</textarea>
+    <span class="text-xs text-slate-500">Issuing CA of the directory servers if it is not in the system trust store (internal AD CS).</span></label>
+  <label class="block"><span class="text-slate-700">Bind DN (service account)</span>
+    <input name="bind_dn" value="{{ cfg.bind_dn }}" placeholder="CN=svc-florepo,OU=Service,DC=corp,DC=example,DC=com" autocomplete="off" class="{{ input }}"></label>
+  <label class="block"><span class="text-slate-700">Bind password</span>
+    <input name="bind_password" type="password" autocomplete="new-password" placeholder="{{ mask + ' (set)' if cfg.bind_password else 'empty = anonymous bind' }}" class="{{ input }}">
+    {% if cfg.bind_password %}<span class="flex items-center gap-2 mt-1 text-xs text-slate-500"><input type="checkbox" name="clear_bind_password"> remove</span>{% endif %}</label>
+  <label class="block timeout"><span class="text-slate-700">Timeout (seconds)</span>
+    <input name="timeout" type="number" min="1" max="120" value="{{ cfg.timeout }}" class="{{ input }} max-w-32"></label>
+  <label class="block"><span class="text-slate-700">Re-sync users every (minutes)</span>
+    <input name="sync_minutes" type="number" min="0" value="{{ cfg.sync_minutes }}" class="{{ input }} max-w-32">
+    <span class="text-xs text-slate-500">Disables accounts removed from the directory or from all mapped groups. 0 = only at login.</span></label>
+</div>
+{% endcall %}
+
+{% call card('Users & groups') %}
+<div class="p-5 grid sm:grid-cols-2 gap-4 text-sm">
+  <div class="sm:col-span-2 flex flex-wrap items-center gap-2 text-xs">
+    <span class="text-slate-500">Presets:</span>
+    {% for name, p in presets.items() %}
+    <button type="button" class="rounded px-2 py-1 ring-1 ring-slate-300 hover:bg-slate-50" data-preset='{{ p | tojson }}'>{{ 'Active Directory' if name == 'ad' else 'OpenLDAP / FreeIPA / 389-DS' }}</button>
+    {% endfor %}
+  </div>
+  <label class="block sm:col-span-2"><span class="text-slate-700">User search base</span>
+    <input name="user_base" value="{{ cfg.user_base }}" placeholder="OU=Users,DC=corp,DC=example,DC=com" class="{{ input }}"></label>
+  <label class="block sm:col-span-2"><span class="text-slate-700">User filter (<code>{username}</code> = login name, escaped)</span>
+    <input name="user_filter" value="{{ cfg.user_filter }}" class="{{ input }} font-mono"></label>
+  <label class="block"><span class="text-slate-700">Username attribute</span><input name="username_attr" value="{{ cfg.username_attr }}" class="{{ input }}"></label>
+  <label class="block"><span class="text-slate-700">E-mail / display name attributes</span>
+    <div class="flex gap-2"><input name="email_attr" value="{{ cfg.email_attr }}" class="{{ input }}"><input name="name_attr" value="{{ cfg.name_attr }}" class="{{ input }}"></div></label>
+  <fieldset class="sm:col-span-2 space-y-2 border-t border-slate-100 pt-4">
+    <legend class="text-slate-700 font-medium">Group membership</legend>
+    {% for mode, label in [('ad_nested', 'Active Directory incl. nested groups (LDAP_MATCHING_RULE_IN_CHAIN)'), ('memberof', 'memberOf attribute of the user (AD, OpenLDAP with memberof overlay) – direct groups only'), ('search', 'Group search with a filter (OpenLDAP groupOfNames / groupOfUniqueNames / posixGroup)')] %}
+    <label class="flex items-center gap-2"><input type="radio" name="group_mode" value="{{ mode }}" {{ 'checked' if cfg.group_mode == mode }}> {{ label }}</label>
+    {% endfor %}
+  </fieldset>
+  <label class="block"><span class="text-slate-700">Group search base (ad_nested / search)</span>
+    <input name="group_base" value="{{ cfg.group_base }}" placeholder="OU=Groups,DC=corp,DC=example,DC=com (empty = user base)" class="{{ input }}"></label>
+  <label class="block"><span class="text-slate-700">Group filter (search mode)</span>
+    <input name="group_filter" value="{{ cfg.group_filter }}" class="{{ input }} font-mono text-xs"></label>
+</div>
+{% endcall %}
+
+{% call card('Group → role mapping') %}
+<div class="p-5 text-sm space-y-3">
+  <p class="text-slate-500">The <b>first</b> matching row decides the role. A group matches by its full DN or its CN (case-insensitive).
+    Deployers get write access to the listed hosted repositories (union of all matching deployer rows; empty = all hosted repositories).</p>
+  <table class="min-w-full text-sm" id="mappings">
+    <thead class="text-left text-slate-500"><tr><th class="py-1 font-medium">Group (DN or CN)</th><th class="py-1 px-2 font-medium">Role</th>
+      <th class="py-1 font-medium">Write repositories (deployer, comma separated)</th><th></th></tr></thead>
+    <tbody>
+    {% for m in (cfg.mappings or []) + [{'group': '', 'role': 'reader', 'repos': []}] %}
+      <tr class="mapping-row">
+        <td class="py-1 pr-2"><input name="map_group" value="{{ m.group }}" placeholder="CN=florepo-admins,OU=Groups,DC=corp,DC=example,DC=com" class="w-full rounded-md border border-slate-300 px-2 py-1.5"></td>
+        <td class="py-1 px-2"><select name="map_role" class="rounded-md border border-slate-300 px-2 py-1.5">
+          {% for r in roles %}<option value="{{ r }}" {{ 'selected' if m.role == r }}>{{ r }}</option>{% endfor %}</select></td>
+        <td class="py-1 pr-2"><input name="map_repos" value="{{ m.repos | join(', ') }}" list="hosted-repos" placeholder="all" class="w-full rounded-md border border-slate-300 px-2 py-1.5"></td>
+        <td class="py-1"><button type="button" class="text-slate-400 hover:text-red-600 remove-row" title="Remove">✕</button></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <datalist id="hosted-repos">{% for r in hosted %}<option value="{{ r.name }}">{% endfor %}</datalist>
+  <button type="button" id="add-row" class="rounded-md px-3 py-1.5 ring-1 ring-slate-300 hover:bg-slate-50">+ Add mapping</button>
+  <label class="block border-t border-slate-100 pt-4"><span class="text-slate-700">Users without a matching group</span>
+    <select name="default_role" class="{{ input }} max-w-md">
+      <option value="" {{ 'selected' if not cfg.default_role }}>are refused (recommended)</option>
+      {% for r in roles %}<option value="{{ r }}" {{ 'selected' if cfg.default_role == r }}>get role {{ r }}</option>{% endfor %}
+    </select></label>
+</div>
+{% endcall %}
+
+<div class="flex gap-3">
+  <button class="rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-2">Save</button>
+</div>
+
+{% call card('Test the configuration') %}
+<div class="p-5 text-sm space-y-3" id="test">
+  <p class="text-slate-500">Uses the values in the form above (not yet saved ones included). Without a password only the lookup and group mapping are tested.</p>
+  <div class="flex flex-wrap gap-2">
+    <input name="test_username" placeholder="username" value="{{ test.username if test else '' }}" autocomplete="off" class="rounded-md border border-slate-300 px-3 py-2">
+    <input name="test_password" type="password" placeholder="password (optional)" autocomplete="new-password" class="rounded-md border border-slate-300 px-3 py-2">
+    <button formaction="{{ url_for('ui.auth_test') }}" class="rounded-md px-4 py-2 ring-1 ring-slate-300 bg-white hover:bg-slate-50">Test</button>
+  </div>
+  {% if test %}
+  <div class="rounded-md p-3 {{ 'bg-emerald-50 ring-1 ring-emerald-200' if test.ok else 'bg-red-50 ring-1 ring-red-200' }}">
+    <ul class="list-disc ml-5 space-y-0.5">{% for s in test.steps %}<li>{{ s }}</li>{% endfor %}</ul>
+    {% if test.error %}<div class="text-red-800 mt-1 break-words">{{ test.error }}</div>{% endif %}
+    {% if test.groups is defined %}
+      <div class="mt-2"><b>Role:</b> {{ test.role or 'none – login refused' }}{% if test.role == 'deployer' %} · <b>write:</b> {{ test.repos | join(', ') if test.repos else 'all hosted repositories' }}{% endif %}</div>
+      <div class="mt-1 text-xs text-slate-600"><b>Groups:</b> {% for g in test.groups %}<span class="inline-block mr-1 {{ 'font-semibold text-indigo-800' if g in test.matched or g.split(',')[0].split('=')[-1] in test.matched }}">{{ g }}</span>{% if not loop.last %} · {% endif %}{% else %}none{% endfor %}</div>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endcall %}
+</form>
+
+<div class="max-w-4xl mt-6">
+{% call card('LDAP users (' ~ (ldap_users | length) ~ ')') %}
+<div class="px-5 py-3 flex flex-wrap items-center justify-between gap-2 text-sm border-b border-slate-100">
+  <span class="text-slate-500">Last sync: {% if last_sync %}{{ last_sync.at | replace('T', ' ') }} – {{ 'ok' if last_sync.ok else 'failed: ' ~ last_sync.error }}{% else %}never{% endif %}</span>
+  <form method="post" action="{{ url_for('ui.auth_sync') }}">{{ csrf() }}<button class="rounded-md px-3 py-1.5 ring-1 ring-slate-300 hover:bg-slate-50">Sync now</button></form>
+</div>
+<div class="overflow-x-auto">
+<table class="sortable min-w-full text-sm">
+  <thead class="text-left text-slate-500 bg-slate-50"><tr><th class="px-5 py-2 font-medium">User</th><th class="px-3 py-2 font-medium">Role</th>
+    <th class="px-3 py-2 font-medium">Status</th><th class="px-3 py-2 font-medium">Last login</th></tr></thead>
+  <tbody class="divide-y divide-slate-100">
+  {% for u in ldap_users %}
+    <tr><td class="px-5 py-2"><a class="text-indigo-700 hover:underline" href="{{ url_for('ui.user_edit', uid=u.id) }}">{{ u.username }}</a>
+        <div class="text-xs text-slate-400">{{ u.display_name or '' }} {{ u.email or '' }}</div></td>
+      <td class="px-3 py-2">{{ u.role }}</td>
+      <td class="px-3 py-2">{% if u.directory_disabled %}<span class="text-amber-700">disabled in directory</span>{% elif not u.active %}<span class="text-slate-400">locked by admin</span>{% else %}<span class="text-emerald-700">active</span>{% endif %}</td>
+      <td class="px-3 py-2 text-slate-500">{{ dt(u.last_login_at) }}</td></tr>
+  {% else %}<tr><td colspan="4" class="px-5 py-6 text-center text-slate-500">No LDAP user has signed in yet.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endcall %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const tbody = document.querySelector('#mappings tbody');
+  document.getElementById('add-row').onclick = () => {
+    const row = tbody.querySelector('.mapping-row:last-child').cloneNode(true);
+    row.querySelectorAll('input').forEach(i => i.value = '');
+    tbody.appendChild(row);
+  };
+  tbody.addEventListener('click', e => {
+    if (!e.target.classList.contains('remove-row')) return;
+    const row = e.target.closest('tr');
+    if (tbody.querySelectorAll('.mapping-row').length > 1) row.remove(); else row.querySelectorAll('input').forEach(i => i.value = '');
+  });
+  document.querySelectorAll('[data-preset]').forEach(btn => btn.onclick = () => {
+    const p = JSON.parse(btn.dataset.preset), form = document.getElementById('ldap-form');
+    for (const [k, v] of Object.entries(p)) {
+      const el = form.elements[k];
+      if (!el) continue;
+      if (el instanceof RadioNodeList) { el.value = v; } else { el.value = v; }
+    }
+  });
+</script>
+{% endblock %}

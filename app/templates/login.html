@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · Florepo</title>
+  <link rel="stylesheet" href="{{ asset_url('css/app.css') }}">
+  <link rel="icon" type="image/svg+xml" href="{{ asset_url('icons/favicon.svg') }}">
+</head>
+<body class="h-full bg-slate-900 flex items-center justify-center px-4">
+  <form method="post" class="w-full max-w-sm bg-white rounded-xl shadow-xl p-8 space-y-5">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="flex items-center gap-2 text-slate-900 font-semibold text-lg">
+      <svg class="w-8 h-8 text-indigo-600" aria-hidden="true"><use href="{{ asset_url('icons/lucide-sprite.svg') }}#package"/></svg>
+      Florepo
+    </div>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}<div class="rounded-md bg-red-50 text-red-800 text-sm px-3 py-2">{{ msg }}</div>{% endfor %}
+    {% endwith %}
+    <label class="block text-sm"><span class="text-slate-700">Username</span>
+      <input name="username" autofocus required autocomplete="username" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"></label>
+    <label class="block text-sm"><span class="text-slate-700">Password</span>
+      <input name="password" type="password" required autocomplete="current-password" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"></label>
+    <label class="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" name="remember" class="rounded"> Keep me signed in</label>
+    <button class="w-full rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2">Sign in</button>
+    <p class="text-center text-xs text-slate-400"><a class="hover:text-slate-600" href="{{ url_for('docs.index') }}">API documentation</a></p>
+  </form>
+</body>
+</html>

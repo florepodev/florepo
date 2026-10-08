@@ -1,0 +1,131 @@
+{% macro sev_badge(sev, n=None) -%}
+  {%- set cls = {
+    'CRITICAL': 'bg-red-600 text-white',
+    'HIGH': 'bg-orange-500 text-white',
+    'MEDIUM': 'bg-amber-300 text-amber-950',
+    'LOW': 'bg-sky-100 text-sky-800',
+    'UNKNOWN': 'bg-slate-200 text-slate-700'}.get(sev, 'bg-slate-200 text-slate-700') -%}
+  <span class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-semibold {{ cls }}">{% if n is not none %}{{ n }}&nbsp;{% endif %}{{ sev[0] if n is not none else sev }}</span>
+{%- endmacro %}
+
+{# numeric value for sorting by severity: critical findings dominate, then high, ... #}
+{% macro sev_score(v) -%}
+  {%- if v and v.scan_status == 'done' -%}
+    {{ v.count_critical * 1000000000 + v.count_high * 1000000 + v.count_medium * 1000 + v.count_low }}
+  {%- else -%}-1{%- endif -%}
+{%- endmacro %}
+
+{% macro sev_rank(sev) -%}{{ {'CRITICAL': 5, 'HIGH': 4, 'MEDIUM': 3, 'LOW': 2, 'UNKNOWN': 1}.get(sev, 0) }}{%- endmacro %}
+
+{% macro malware_badge(v) -%}
+  {%- if v.malware_status == 'infected' -%}
+    <span class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-semibold bg-red-700 text-white" title="ClamAV: {{ v.malware_name }}">malware</span>
+  {%- elif v.malware_status == 'clean' -%}
+    <span class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" title="ClamAV: no malware found">AV clean</span>
+  {%- elif v.malware_status == 'error' -%}
+    <span class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-50 text-amber-800" title="ClamAV scan failed">AV error</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro sev_summary(v) -%}
+  {%- if v.malware_status == 'infected' %}{{ malware_badge(v) }} {% endif -%}
+  {%- if v.scan_status == 'done' -%}
+    {%- if v.total_vulns == 0 -%}
+      <span class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-semibold bg-emerald-100 text-emerald-800">clean</span>
+    {%- else -%}
+      <span class="inline-flex gap-1">
+      {%- if v.count_critical %}{{ sev_badge('CRITICAL', v.count_critical) }}{% endif -%}
+      {%- if v.count_high %}{{ sev_badge('HIGH', v.count_high) }}{% endif -%}
+      {%- if v.count_medium %}{{ sev_badge('MEDIUM', v.count_medium) }}{% endif -%}
+      {%- if v.count_low %}{{ sev_badge('LOW', v.count_low) }}{% endif -%}
+      {%- if v.count_unknown %}{{ sev_badge('UNKNOWN', v.count_unknown) }}{% endif -%}
+      </span>
+    {%- endif -%}
+    {%- if v.is_blocked() %} <span class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-semibold bg-slate-900 text-white" title="Downloads blocked by the security policy">blocked</span>{% endif -%}
+  {%- else -%}
+    {{ scan_status(v.scan_status) }}
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro scan_status(s) -%}
+  {%- set m = {
+    'none': ('not scanned', 'bg-slate-100 text-slate-600'),
+    'pending': ('queued', 'bg-indigo-50 text-indigo-700'),
+    'running': ('scanning…', 'bg-indigo-100 text-indigo-800 animate-pulse'),
+    'done': ('scanned', 'bg-emerald-100 text-emerald-800'),
+    'failed': ('scan failed', 'bg-red-100 text-red-800')}[s] -%}
+  <span class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium {{ m[1] }}">{{ m[0] }}</span>
+{%- endmacro %}
+
+{% macro fmt_badge(fmt) -%}
+  {%- set cls = {'docker': 'bg-sky-100 text-sky-800 ring-sky-200',
+                 'pypi': 'bg-yellow-50 text-yellow-800 ring-yellow-200',
+                 'npm': 'bg-rose-50 text-rose-700 ring-rose-200',
+                 'deb': 'bg-red-50 text-red-700 ring-red-200',
+                 'rpm': 'bg-orange-50 text-orange-700 ring-orange-200',
+                 'apk': 'bg-blue-50 text-blue-700 ring-blue-200',
+                 'maven': 'bg-amber-50 text-amber-800 ring-amber-200',
+                 'go': 'bg-cyan-50 text-cyan-800 ring-cyan-200',
+                 'nuget': 'bg-violet-50 text-violet-700 ring-violet-200',
+                 'cargo': 'bg-orange-50 text-orange-800 ring-orange-300',
+                 'helm': 'bg-indigo-50 text-indigo-700 ring-indigo-200',
+                 'generic': 'bg-stone-100 text-stone-700 ring-stone-200'}.get(fmt, 'bg-slate-100 text-slate-700 ring-slate-200') -%}
+  <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 {{ cls }}">{{ fmt }}</span>
+{%- endmacro %}
+
+{% macro kind_badge(kind) -%}
+  {%- if kind == 'proxy' -%}
+    <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-violet-50 text-violet-700 ring-1 ring-violet-200">Proxy cache</span>
+  {%- else -%}
+    <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-slate-100 text-slate-700 ring-1 ring-slate-200">Hosted</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro size(n) -%}
+  {%- if n is none %}–{% elif n < 1024 %}{{ n }} B{% elif n < 1048576 %}{{ '%.1f' % (n / 1024) }} KB{% elif n < 1073741824 %}{{ '%.1f' % (n / 1048576) }} MB{% else %}{{ '%.2f' % (n / 1073741824) }} GB{% endif -%}
+{%- endmacro %}
+
+{% macro dt(d) -%}{{ d.strftime('%Y-%m-%d %H:%M') if d else '–' }}{%- endmacro %}
+
+{% macro code(id, text) -%}
+  <div class="relative group">
+    <pre id="{{ id }}" class="bg-slate-900 text-slate-100 text-xs rounded-md p-4 overflow-x-auto">{{ text }}</pre>
+    <button type="button" data-copy="{{ id }}" class="absolute top-2 right-2 text-xs rounded bg-slate-700 text-slate-200 px-2 py-1 opacity-0 group-hover:opacity-100 transition">Copy</button>
+  </div>
+{%- endmacro %}
+
+{% macro card(title=None) -%}
+  <section class="bg-white rounded-lg shadow-sm ring-1 ring-slate-200">
+    {% if title %}<h2 class="px-5 py-3 border-b border-slate-100 font-semibold text-slate-900">{{ title }}</h2>{% endif %}
+    {{ caller() }}
+  </section>
+{%- endmacro %}
+
+{% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endmacro %}
+
+{# header cell for server-side sorted (paginated) tables #}
+{% macro sort_th(label, key, sort, cls='px-3') -%}
+  {%- set active = sort.key == key -%}
+  {%- set next_dir = 'asc' if active and sort.dir == 'desc' else ('desc' if active else sort.default_dir.get(key, 'asc')) -%}
+  <th class="{{ cls }} py-2 font-medium">
+    <a href="{{ report_url(sort=key, dir=next_dir, page='') }}" class="inline-flex items-center gap-1 hover:text-slate-900 {{ 'text-slate-900' if active }}">
+      {{ label }}<span class="{{ 'text-slate-500' if active else 'text-slate-300' }}">{{ ('▲' if sort.dir == 'asc' else '▼') if active else '↕' }}</span></a>
+  </th>
+{%- endmacro %}
+
+{% macro pager(page) -%}
+  {% if page.pages > 1 %}
+  <div class="flex items-center justify-between px-5 py-3 text-sm border-t border-slate-100">
+    <span class="text-slate-500">Page {{ page.page }} of {{ page.pages }} · {{ page.total }} entries</span>
+    <div class="space-x-2">
+      {% if page.has_prev %}<a class="text-indigo-600 hover:underline" href="{{ report_url(page=page.prev_num) }}">← Previous</a>{% endif %}
+      {% if page.has_next %}<a class="text-indigo-600 hover:underline" href="{{ report_url(page=page.next_num) }}">Next →</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+{%- endmacro %}
+
+{# Lucide icon from the local sprite (app/static/icons, ISC license) #}
+{% macro icon(name, cls='w-4 h-4') -%}
+  <svg class="{{ cls }} shrink-0" aria-hidden="true"><use href="{{ asset_url('icons/lucide-sprite.svg') }}#{{ name }}"/></svg>
+{%- endmacro %}

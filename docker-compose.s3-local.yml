@@ -1,0 +1,65 @@
+# S3 storage with a bundled S3-compatible object store (SeaweedFS, Apache-2.0) – for evaluation and as a
+# template. Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.s3-local.yml up -d
+# or in .env:  COMPOSE_FILE=docker-compose.yml:docker-compose.s3-local.yml
+# For a real object store (AWS S3, Ceph RGW, Garage, Wasabi, an existing MinIO cluster, ...) skip this file and
+# set STORAGE_BACKEND=s3 plus the S3_* variables in .env instead (see README → Storage).
+# Existing file system data can be copied first:  docker compose run --rm web flask --app wsgi storage-copy
+x-s3-env: &s3env
+  STORAGE_BACKEND: s3
+  S3_ENDPOINT_URL: http://s3:8333
+  S3_BUCKET: ${S3_BUCKET:-florepo}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-florepo}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in .env}
+  S3_REGION: ${S3_REGION:-us-east-1}
+
+services:
+  s3:
+    image: chrislusf/seaweedfs:${SEAWEEDFS_TAG:-latest}
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        cat > /tmp/s3.json <<EOF
+        {"identities": [{"name": "florepo", "credentials": [{"accessKey": "$$S3_ACCESS_KEY_ID", "secretKey": "$$S3_SECRET_ACCESS_KEY"}],
+          "actions": ["Admin", "Read", "Write", "List", "Tagging"]}]}
+        EOF
+        exec weed server -dir=/data -s3 -s3.port=8333 -s3.config=/tmp/s3.json -master.volumeSizeLimitMB=1024 -volume.max=0
+    environment:
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-florepo}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+    volumes:
+      - s3data:/data
+
+  # creates the bucket once (uses boto3 from the Florepo image)
+  s3-init:
+    image: florepo:latest
+    restart: "no"
+    depends_on: [s3]
+    entrypoint: ["python", "-c"]
+    command:
+      - |
+        import os, time, boto3
+        s3 = boto3.client("s3", endpoint_url="http://s3:8333", aws_access_key_id=os.environ["S3_ACCESS_KEY_ID"],
+                          aws_secret_access_key=os.environ["S3_SECRET_ACCESS_KEY"], region_name=os.environ["S3_REGION"])
+        for i in range(60):
+            try:
+                if os.environ["S3_BUCKET"] not in [b["Name"] for b in s3.list_buckets()["Buckets"]]:
+                    s3.create_bucket(Bucket=os.environ["S3_BUCKET"])
+                print("bucket ready"); break
+            except Exception as exc:
+                print("waiting for S3:", exc); time.sleep(2)
+        else:
+            raise SystemExit(1)
+    environment: *s3env
+
+  web:
+    environment: *s3env
+    depends_on:
+      s3-init:
+        condition: service_completed_successfully
+  worker:
+    environment: *s3env
+
+volumes:
+  s3data:

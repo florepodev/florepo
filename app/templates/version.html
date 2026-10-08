@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_badge, malware_badge, sev_badge, sev_summary, sev_rank, scan_status, dt, size, card, csrf, code %}
+{% block title %}{{ pkg.display_name }}@{{ ver.version }}{% endblock %}
+{% block content %}
+{% set host = registry_host() %}
+<div class="flex flex-wrap items-start justify-between gap-4 mb-6">
+  <div>
+    <div class="text-sm text-slate-500"><a class="hover:underline" href="{{ url_for('ui.repo_detail', name=repo.name) }}">{{ repo.name }}</a> /
+      <a class="hover:underline" href="{{ url_for('ui.package_detail', pid=pkg.id) }}">{{ pkg.display_name }}</a> /</div>
+    <h1 class="text-2xl font-semibold text-slate-900 flex items-center gap-3">{{ ver.version }} {{ fmt_badge(repo.format) }} {{ sev_summary(ver) }}</h1>
+    {% if ver.meta and (ver.meta.summary or (ver.meta.manifest and ver.meta.manifest.description)) %}
+      <p class="text-slate-600 mt-1">{{ ver.meta.summary or ver.meta.manifest.description }}</p>{% endif %}
+  </div>
+  <div class="flex gap-2">
+    {% if ver.sbom_key %}<a href="{{ url_for('ui.version_sbom', vid=ver.id) }}" class="rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-3 py-2">SBOM (CycloneDX)</a>{% endif %}
+    {% if current_user.is_authenticated and can_write(repo, current_user) %}
+    <form method="post" action="{{ url_for('ui.version_rescan', vid=ver.id) }}">{{ csrf() }}
+      <button class="rounded-md px-3 py-2 text-sm ring-1 ring-slate-300 bg-white hover:bg-slate-50">Re-scan</button></form>
+    <form method="post" action="{{ url_for('ui.version_delete', vid=ver.id) }}" onsubmit="return confirm('Really delete this version?')">{{ csrf() }}
+      <button class="rounded-md px-3 py-2 text-sm ring-1 ring-red-300 text-red-700 bg-white hover:bg-red-50">Delete</button></form>
+    {% endif %}
+  </div>
+</div>
+
+{% set reason = ver.block_reason() %}
+{% if reason == 'malware' %}
+<div class="mb-6 rounded-md bg-red-700 text-white px-4 py-3 text-sm">⛔ ClamAV found malware in this version ({{ ver.malware_name }}). Downloads are blocked (HTTP 403).</div>
+{% elif reason == 'unscanned' %}
+<div class="mb-6 rounded-md bg-amber-100 text-amber-900 px-4 py-3 text-sm">⏳ Downloads are held back until the malware scan has finished (policy “block until scanned”).</div>
+{% elif reason %}
+<div class="mb-6 rounded-md bg-slate-900 text-white px-4 py-3 text-sm">⛔ This version is blocked by the repository policy (findings ≥ {{ repo.block_severity }}). Clients receive HTTP 403.</div>
+{% endif %}
+
+<div class="grid lg:grid-cols-3 gap-6 mb-6">
+  {% call card('Details') %}
+  <dl class="p-5 text-sm space-y-2">
+    {% if repo.format == 'docker' %}
+      <div><dt class="text-slate-500">Digest</dt><dd class="font-mono text-xs break-all">{{ ver.digest }}</dd></div>
+      {% if ver.meta.platforms %}<div class="flex justify-between gap-2"><dt class="text-slate-500">Platforms</dt><dd class="text-right">{{ ver.meta.platforms | join(', ') }}</dd></div>{% endif %}
+      {% if ver.meta.layers %}<div class="flex justify-between"><dt class="text-slate-500">Layers</dt><dd>{{ ver.meta.layers }} · {{ size(ver.meta.size) }}</dd></div>{% endif %}
+      {% if ver.meta.scanned_platform %}<div class="flex justify-between"><dt class="text-slate-500">Scanned platform</dt><dd>{{ ver.meta.scanned_platform }}</dd></div>{% endif %}
+    {% endif %}
+    {% if ver.meta.license or (ver.meta.manifest and ver.meta.manifest.license) %}
+      <div class="flex justify-between"><dt class="text-slate-500">License</dt><dd>{{ ver.meta.license or ver.meta.manifest.license }}</dd></div>{% endif %}
+    {% if ver.meta.requires_python %}<div class="flex justify-between"><dt class="text-slate-500">Python</dt><dd>{{ ver.meta.requires_python }}</dd></div>{% endif %}
+    <div class="flex justify-between"><dt class="text-slate-500">Uploaded by</dt><dd>{{ ver.uploaded_by or '–' }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">Date</dt><dd>{{ dt(ver.created_at) }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">Downloads</dt><dd>{{ ver.download_count }}</dd></div>
+  </dl>
+  {% endcall %}
+
+  {% call card('Security scan') %}
+  <dl class="p-5 text-sm space-y-2">
+    <div class="flex justify-between"><dt class="text-slate-500">Status</dt><dd>{{ scan_status(ver.scan_status) }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">Scanner</dt><dd>{{ ver.scanner or '–' }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">Last scan</dt><dd>{{ dt(ver.scanned_at) }}</dd></div>
+    {% if ver.meta and ver.meta.trivy_db %}<div class="flex justify-between"><dt class="text-slate-500">Signature DB</dt><dd>{{ ver.meta.trivy_db[:16] | replace('T', ' ') }}</dd></div>{% endif %}
+    <div class="flex justify-between"><dt class="text-slate-500">SBOM components</dt><dd>{{ ver.component_count }}</dd></div>
+    <div class="flex flex-wrap gap-1 pt-2">{% for s in SEVERITIES %}{{ sev_badge(s, ver['count_' ~ s.lower()]) }}{% endfor %}</div>
+    {% if ver.scan_error %}<div class="mt-2 rounded bg-amber-50 text-amber-800 text-xs p-2 break-words">{{ ver.scan_error[:600] }}</div>{% endif %}
+    {% if ver.malware_status != 'none' or malware_policy().enabled %}
+    {% set mw = (ver.meta or {}).get('malware') or {} %}
+    <div class="border-t border-slate-100 pt-2 mt-2 flex justify-between"><dt class="text-slate-500">Malware (ClamAV)</dt>
+      <dd>{{ malware_badge(ver) if ver.malware_status != 'none' else '<span class="text-slate-400">not scanned</span>' | safe }}</dd></div>
+    {% if ver.malware_scanned_at %}<div class="flex justify-between"><dt class="text-slate-500">Checked</dt><dd>{{ dt(ver.malware_scanned_at) }}{% if mw.engine %} · <span class="text-xs text-slate-500">{{ mw.engine }}</span>{% endif %}</dd></div>{% endif %}
+    {% for f in mw.found or [] %}<div class="rounded bg-red-50 text-red-800 text-xs p-2 break-words">{{ f.file }}: {{ f.signature }}</div>{% endfor %}
+    {% if mw.skipped %}<div class="text-xs text-amber-700">{{ mw.skipped | length }} file(s) skipped (larger than the configured limit)</div>{% endif %}
+    {% if mw.error %}<div class="rounded bg-amber-50 text-amber-800 text-xs p-2 break-words">{{ mw.error }}</div>{% endif %}
+    {% endif %}
+  </dl>
+  {% endcall %}
+
+  {% call card('Usage') %}
+  <div class="p-5 text-sm space-y-3">
+    {% if repo.format == 'docker' %}
+      {{ code('use', 'docker pull ' ~ host ~ '/' ~ repo.name ~ '/' ~ pkg.name ~ ':' ~ ver.version) }}
+    {% elif repo.format == 'pypi' %}
+      {{ code('use', 'pip install --index-url ' ~ base_url() ~ '/pypi/' ~ repo.name ~ '/simple/ ' ~ pkg.display_name ~ '==' ~ ver.version) }}
+    {% elif repo.format == 'npm' %}
+      {{ code('use', 'npm install ' ~ pkg.display_name ~ '@' ~ ver.version ~ ' --registry=' ~ base_url() ~ '/npm/' ~ repo.name ~ '/') }}
+    {% elif repo.format == 'deb' %}
+      {{ code('use', 'apt-get install ' ~ pkg.display_name ~ '=' ~ ver.version) }}
+    {% elif repo.format == 'rpm' %}
+      {{ code('use', 'dnf install ' ~ pkg.display_name ~ '-' ~ ver.version.split(':')[-1]) }}
+    {% elif repo.format == 'apk' %}
+      {{ code('use', 'apk add ' ~ pkg.display_name ~ '=' ~ ver.version) }}
+    {% elif repo.format == 'maven' %}
+      {% set ga = pkg.name.split(':') %}
+      {{ code('use', '<dependency>\n  <groupId>' ~ ga[0] ~ '</groupId>\n  <artifactId>' ~ ga[1] ~ '</artifactId>\n  <version>' ~ ver.version ~ '</version>\n</dependency>') }}
+    {% elif repo.format == 'go' %}
+      {{ code('use', 'go get ' ~ pkg.name ~ '@' ~ ver.version) }}
+    {% elif repo.format == 'nuget' %}
+      {{ code('use', 'dotnet add package ' ~ pkg.display_name ~ ' --version ' ~ ver.version ~ ' -s ' ~ repo.name) }}
+    {% elif repo.format == 'cargo' %}
+      {{ code('use', 'cargo add ' ~ pkg.display_name ~ '@' ~ ver.version ~ ' --registry ' ~ repo.name) }}
+    {% elif repo.format == 'helm' %}
+      {{ code('use', 'helm install ' ~ pkg.name ~ ' ' ~ repo.name ~ '/' ~ pkg.name ~ ' --version ' ~ ver.version) }}
+    {% elif repo.format == 'generic' and ver.files %}
+      {{ code('use', 'curl -fu <user>:<token> -O ' ~ base_url() ~ '/generic/' ~ repo.name ~ '/' ~ ver.files[0].path) }}
+    {% endif %}
+    {% if pulls is not none %}
+      <div class="font-medium pt-2">Pulled by</div>
+      <ul class="divide-y divide-slate-100">
+      {% for user, n, last in pulls %}
+        <li class="py-1.5 flex justify-between"><a class="text-indigo-700 hover:underline" href="{{ url_for('reports.user_report', username=user, days=0) }}">{{ user }}</a>
+          <span class="text-slate-500">{{ n }}× · {{ dt(last) }}</span></li>
+      {% else %}<li class="py-1.5 text-slate-500">not downloaded yet</li>{% endfor %}
+      </ul>
+    {% endif %}
+  </div>
+  {% endcall %}
+</div>
+
+{% if ver.files %}
+<div class="mb-6">
+{% call card('Files') %}
+<table class="sortable min-w-full text-sm">
+  <thead class="text-left text-slate-500 bg-slate-50"><tr>
+    <th class="px-5 py-2 font-medium">File</th><th class="px-3 py-2 font-medium">Size</th><th class="px-3 py-2 font-medium">SHA-256</th></tr></thead>
+  <tbody class="divide-y divide-slate-100">
+  {% for f in ver.files %}
+    <tr><td class="px-5 py-2 font-medium">{{ f.filename }}{% if f.path and f.path != f.filename %}<div class="text-xs font-normal text-slate-400">{{ f.path }}</div>{% endif %}</td><td class="px-3 py-2 text-slate-500" data-sort="{{ f.size }}">{{ size(f.size) }}</td>
+      <td class="px-3 py-2 font-mono text-xs text-slate-500 break-all">sha256:{{ f.sha256 }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endcall %}
+</div>
+{% endif %}
+
+{% call card('Vulnerabilities (' ~ vulns|length ~ ')') %}
+<div class="overflow-x-auto">
+<table class="sortable min-w-full text-sm">
+  <thead class="text-left text-slate-500 bg-slate-50"><tr>
+    <th class="px-5 py-2 font-medium">Severity</th><th class="px-3 py-2 font-medium">ID</th>
+    <th class="px-3 py-2 font-medium">Component</th><th class="px-3 py-2 font-medium">Installed</th>
+    <th class="px-3 py-2 font-medium">Fixed in</th><th class="px-3 py-2 font-medium">Title</th></tr></thead>
+  <tbody class="divide-y divide-slate-100">
+  {% for v in vulns %}
+    <tr class="hover:bg-slate-50 align-top">
+      <td class="px-5 py-2" data-sort="{{ sev_rank(v.severity) }}">{{ sev_badge(v.severity) }}</td>
+      <td class="px-3 py-2 whitespace-nowrap" data-sort="{{ v.vuln_id }}"><a class="text-indigo-700 hover:underline" href="{{ url_for('ui.vulnerability_detail', vuln_id=v.vuln_id) }}">{{ v.vuln_id }}</a>
+        {% if v.url %}<a href="{{ v.url }}" target="_blank" rel="noopener noreferrer" class="text-slate-400 hover:text-slate-600">↗</a>{% endif %}</td>
+      <td class="px-3 py-2" data-sort="{{ v.pkg_name }}">{{ v.pkg_name }} <span class="text-xs text-slate-400">{{ v.pkg_type }}</span></td>
+      <td class="px-3 py-2 font-mono text-xs">{{ v.installed_version }}</td>
+      <td class="px-3 py-2 font-mono text-xs {{ 'text-emerald-700' if v.fixed_version else 'text-slate-400' }}" data-sort="{{ v.fixed_version or '' }}">{{ v.fixed_version or 'no fix' }}</td>
+      <td class="px-3 py-2 text-slate-600 max-w-md">{{ (v.title or '')[:160] }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="px-5 py-8 text-center text-slate-500">{{ 'No known vulnerabilities.' if ver.scan_status == 'done' else 'No scan results yet.' }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endcall %}
+{% endblock %}

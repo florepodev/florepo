@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% from "_macros.html" import sev_badge, sev_rank, card %}
+{% block title %}Vulnerabilities{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold text-slate-900 mb-6">Vulnerabilities</h1>
+{% call card() %}
+<form class="px-5 py-3 border-b border-slate-100 flex flex-wrap gap-2 text-sm">
+  <input name="q" value="{{ q }}" placeholder="CVE / component" class="flex-1 min-w-48 rounded-md border border-slate-300 px-3 py-1.5">
+  <select name="severity" class="rounded-md border border-slate-300 px-3 py-1.5">
+    <option value="">all severities</option>
+    {% for s in SEVERITIES %}<option {{ 'selected' if sev == s }}>{{ s }}</option>{% endfor %}
+  </select>
+  <button class="rounded-md bg-slate-800 text-white px-3">Filter</button>
+</form>
+<div class="overflow-x-auto">
+<table class="sortable min-w-full text-sm">
+  <thead class="text-left text-slate-500 bg-slate-50"><tr>
+    <th class="px-5 py-2 font-medium">ID</th><th class="px-3 py-2 font-medium">Severity</th>
+    <th class="px-3 py-2 font-medium">Affected versions</th><th class="px-3 py-2 font-medium">Title</th></tr></thead>
+  <tbody class="divide-y divide-slate-100">
+  {% for vid, s, title, url, n in rows %}
+    <tr class="hover:bg-slate-50">
+      <td class="px-5 py-2 whitespace-nowrap"><a class="text-indigo-700 hover:underline" href="{{ url_for('ui.vulnerability_detail', vuln_id=vid) }}">{{ vid }}</a></td>
+      <td class="px-3 py-2" data-sort="{{ sev_rank(s) }}">{{ sev_badge(s) }}</td>
+      <td class="px-3 py-2 tabular-nums">{{ n }}</td>
+      <td class="px-3 py-2 text-slate-600">{{ (title or '')[:140] }}</td>
+    </tr>
+  {% else %}<tr><td colspan="4" class="px-5 py-8 text-center text-slate-500">No findings.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endcall %}
+{% endblock %}

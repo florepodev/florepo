@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Florepo{% endblock %} · Florepo</title>
+  <link rel="stylesheet" href="{{ asset_url('css/app.css') }}">
+  <link rel="icon" type="image/svg+xml" href="{{ asset_url('icons/favicon.svg') }}">
+</head>
+<body class="h-full bg-slate-50 text-slate-800 antialiased">
+{% from "_macros.html" import icon %}
+{% set ep = request.endpoint or '' %}
+<div class="min-h-full flex">
+  <aside class="hidden md:flex w-60 shrink-0 flex-col bg-slate-900 text-slate-300">
+    <a href="{{ url_for('ui.dashboard') }}" class="flex items-center gap-2 px-5 h-16 text-white font-semibold tracking-tight">
+      {{ icon("package", "w-7 h-7 text-indigo-400") }}
+      Florepo
+    </a>
+    <nav class="flex-1 px-3 py-4 space-y-1 text-sm">
+      {% macro nav(endpoint, label, prefix, ico) %}
+        <a href="{{ url_for(endpoint) }}" class="flex items-center gap-3 rounded-md px-3 py-2 {% if ep.startswith(prefix) %}bg-slate-800 text-white{% else %}hover:bg-slate-800 hover:text-white{% endif %}">{{ icon(ico, "w-4 h-4 opacity-80") }}<span>{{ label }}</span></a>
+      {% endmacro %}
+      {{ nav('ui.dashboard', 'Dashboard', 'ui.dashboard', 'layout-dashboard') }}
+      {{ nav('ui.repos', 'Repositories', 'ui.repo', 'boxes') }}
+      {% if current_user.is_authenticated %}
+        {{ nav('ui.vulnerabilities', 'Vulnerabilities', 'ui.vulnerabilit', 'shield-alert') }}
+        {% if current_user.can_audit %}
+          <div class="pt-4 pb-1 px-3 text-xs uppercase tracking-wider text-slate-500">Reporting</div>
+          {{ nav('reports.overview', 'Overview', 'reports.overview', 'chart-column') }}
+          {{ nav('reports.usage', 'Package inventory', 'reports.usage', 'clipboard-list') }}
+          {{ nav('reports.downloads', 'Download log', 'reports.downloads', 'download') }}
+          {{ nav('ui.audit', 'Audit log', 'ui.audit', 'history') }}
+        {% endif %}
+        {% if current_user.is_admin %}
+          <div class="pt-4 pb-1 px-3 text-xs uppercase tracking-wider text-slate-500">Administration</div>
+          {{ nav('ui.users', 'Users', 'ui.user', 'users') }}
+          {{ nav('ui.scanner_admin', 'Scanner & DB', 'ui.scanner', 'scan-search') }}
+          {{ nav('ui.notifications_admin', 'Notifications', 'ui.notifications', 'bell') }}
+          {{ nav('ui.network_admin', 'Network', 'ui.network', 'network') }}
+          {{ nav('ui.auth_admin', 'Authentication', 'ui.auth_', 'lock-keyhole') }}
+          {{ nav('ui.storage_admin', 'Storage & quotas', 'ui.storage', 'hard-drive') }}
+        {% endif %}
+        <div class="pt-4 pb-1 px-3 text-xs uppercase tracking-wider text-slate-500">Account</div>
+        {{ nav('ui.tokens', 'API tokens', 'ui.token', 'key-round') }}
+      {% endif %}
+      <div class="pt-4 pb-1 px-3 text-xs uppercase tracking-wider text-slate-500">Help</div>
+      {{ nav('docs.guides', 'Setup guides', 'docs.guides', 'life-buoy') }}
+      {{ nav('docs.index', 'API docs', 'docs.index', 'code') }}
+    </nav>
+    <a href="{{ url_for('docs.guides') }}#license" class="px-5 pb-2 text-[11px] text-slate-600 hover:text-slate-400">Apache-2.0 · © 2026 Maximilian Thoma</a>
+    <div class="px-5 py-4 border-t border-slate-800 text-sm">
+      {% if current_user.is_authenticated %}
+        <div class="text-white">{{ current_user.username }}</div>
+        <div class="text-xs text-slate-500 mb-2">{{ current_user.role }}</div>
+        <form method="post" action="{{ url_for('ui.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="inline-flex items-center gap-2 text-slate-400 hover:text-white">{{ icon("log-out") }}Sign out</button></form>
+      {% else %}
+        <a href="{{ url_for('ui.login') }}" class="inline-flex items-center gap-2 text-slate-300 hover:text-white">{{ icon("log-in") }}Sign in</a>
+      {% endif %}
+    </div>
+  </aside>
+
+  <main class="flex-1 min-w-0">
+    <header class="md:hidden flex items-center justify-between bg-slate-900 text-white px-4 h-14">
+      <a href="{{ url_for('ui.dashboard') }}" class="flex items-center gap-2 font-semibold">{{ icon("package", "w-6 h-6 text-indigo-400") }}Florepo</a>
+      <a href="{{ url_for('ui.repos') }}" class="text-sm text-slate-300">Repositories</a>
+    </header>
+    <div class="max-w-7xl mx-auto px-4 sm:px-8 py-8">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in messages %}
+          <div class="mb-4 rounded-md px-4 py-3 text-sm {% if cat == 'error' %}bg-red-50 text-red-800 ring-1 ring-red-200{% else %}bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200{% endif %}">{{ msg }}</div>
+        {% endfor %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+</div>
+<script src="{{ asset_url('js/app.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

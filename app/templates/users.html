@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from "_macros.html" import dt, card, csrf, fmt_badge %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold text-slate-900 mb-6">Users</h1>
+<div class="grid lg:grid-cols-3 gap-6">
+  <div class="lg:col-span-2">
+  {% call card() %}
+  <div class="overflow-x-auto">
+  <table class="sortable min-w-full text-sm">
+    <thead class="text-left text-slate-500 bg-slate-50"><tr>
+      <th class="px-5 py-2 font-medium">User</th><th class="px-3 py-2 font-medium">Role</th>
+      <th class="px-3 py-2 font-medium">Write access</th><th class="px-3 py-2 font-medium">Status</th><th data-nosort></th></tr></thead>
+    <tbody class="divide-y divide-slate-100">
+    {% for u in users %}
+      <tr class="hover:bg-slate-50 align-top">
+        <td class="px-5 py-2" data-sort="{{ u.username }}"><a class="font-medium text-indigo-700 hover:underline" href="{{ url_for('ui.user_edit', uid=u.id) }}">{{ u.username }}</a>
+          {% if u.is_ldap %}<span class="ml-1 rounded bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200 px-1.5 py-0.5 text-[10px] font-semibold">LDAP</span>{% endif %}
+          <div class="text-xs text-slate-400">since {{ dt(u.created_at) }} · {{ u.tokens|length }} tokens{% if u.display_name %} · {{ u.display_name }}{% endif %}</div></td>
+        <td class="px-3 py-2">{{ u.role }}</td>
+        <td class="px-3 py-2">
+          {% if u.role == 'admin' %}<span class="text-slate-600">all</span>
+          {% elif u.role in ('reader', 'auditor') %}<span class="text-slate-400">none</span>{% if u.role == 'auditor' %} <span class="text-xs text-violet-700">read-only audit</span>{% endif %}
+          {% elif not u.restrict_deploy %}<span class="text-slate-600">all hosted repositories</span>
+          {% else %}
+            {% for r in u.deploy_repos %}<span class="inline-block mr-1 mb-1 rounded bg-indigo-50 text-indigo-800 px-1.5 py-0.5 text-xs">{{ r.name }}</span>
+            {% else %}<span class="text-amber-700 text-xs">restricted – no repository granted</span>{% endfor %}
+          {% endif %}
+        </td>
+        <td class="px-3 py-2">{% if u.directory_disabled %}<span class="text-amber-700">disabled in directory</span>{% elif u.active %}<span class="text-emerald-700">active</span>{% else %}<span class="text-slate-400">disabled</span>{% endif %}</td>
+        <td class="px-3 py-2 text-right whitespace-nowrap">
+          <a class="text-indigo-700 hover:underline" href="{{ url_for('ui.user_edit', uid=u.id) }}">Edit</a> ·
+          <a class="text-indigo-700 hover:underline" href="{{ url_for('reports.user_report', username=u.username) }}">Pulls</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endcall %}
+  </div>
+  {% call card('Create user') %}
+  <form method="post" class="p-5 space-y-3 text-sm">{{ csrf() }}
+    <input name="username" required placeholder="Username" class="w-full rounded-md border border-slate-300 px-3 py-2">
+    <input name="password" type="password" required minlength="8" placeholder="Password" autocomplete="new-password" class="w-full rounded-md border border-slate-300 px-3 py-2">
+    <select name="role" class="w-full rounded-md border border-slate-300 px-3 py-2">
+      <option value="reader">reader – read / pull only</option>
+      <option value="deployer">deployer – read + publish</option>
+      <option value="auditor">auditor – security audit: view all, reports, SBOMs (no downloads)</option>
+      <option value="admin">admin – everything incl. reports</option>
+    </select>
+    <p class="text-xs text-slate-500">Write access can be restricted to individual repositories via “Edit” after creating the user.</p>
+    <p class="text-xs text-slate-500">Directory users (LDAP / Active Directory) are created automatically at their first sign-in – see Administration → Authentication.</p>
+    <button class="rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-4 py-2">Create</button>
+  </form>
+  {% endcall %}
+</div>
+{% endblock %}

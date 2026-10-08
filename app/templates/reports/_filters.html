@@ -1,0 +1,23 @@
+<form class="mb-6 flex flex-wrap items-end gap-3 text-sm bg-white rounded-lg shadow-sm ring-1 ring-slate-200 p-4">
+  <label class="block"><span class="text-slate-500 text-xs">Period</span>
+    <select name="days" class="mt-1 block rounded-md border border-slate-300 px-2 py-1.5">
+      {% for d, label in ranges %}<option value="{{ d }}" {{ 'selected' if f.days == d }}>{{ label }}</option>{% endfor %}
+    </select></label>
+  <label class="block"><span class="text-slate-500 text-xs">Format</span>
+    <select name="fmt" class="mt-1 block rounded-md border border-slate-300 px-2 py-1.5">
+      <option value="">all</option>{% for x in formats %}<option {{ 'selected' if f.fmt == x }}>{{ x }}</option>{% endfor %}
+    </select></label>
+  <label class="block"><span class="text-slate-500 text-xs">Repository</span>
+    <select name="repo" class="mt-1 block rounded-md border border-slate-300 px-2 py-1.5">
+      <option value="">all</option>{% for x in repos %}<option {{ 'selected' if f.repo == x }}>{{ x }}</option>{% endfor %}
+    </select></label>
+  {% if not hide_user %}
+  <label class="block"><span class="text-slate-500 text-xs">User</span>
+    <input name="user" value="{{ f.user }}" placeholder="all" class="mt-1 block w-32 rounded-md border border-slate-300 px-2 py-1.5"></label>
+  {% endif %}
+  <label class="block"><span class="text-slate-500 text-xs">Package</span>
+    <input name="q" value="{{ f.q }}" placeholder="name contains…" class="mt-1 block w-40 rounded-md border border-slate-300 px-2 py-1.5"></label>
+  {% if sort %}<input type="hidden" name="sort" value="{{ sort.key }}"><input type="hidden" name="dir" value="{{ sort.dir }}">{% endif %}
+  <button class="rounded-md bg-slate-800 text-white px-3 py-1.5">Apply</button>
+  {% if export %}<a href="{{ report_url(export='csv', page='') }}" class="ml-auto rounded-md ring-1 ring-slate-300 px-3 py-1.5 hover:bg-slate-50">Export CSV</a>{% endif %}
+</form>

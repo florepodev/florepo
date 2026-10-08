@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% from "_macros.html" import dt, card, csrf, code %}
+{% block title %}API tokens{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold text-slate-900 mb-6">API tokens</h1>
+{% if new_token %}
+<div class="mb-6 rounded-lg bg-emerald-50 ring-1 ring-emerald-200 p-5 text-sm space-y-2">
+  <div class="font-semibold text-emerald-900">New token – it is shown only once!</div>
+  {{ code('newtok', new_token) }}
+  <p class="text-emerald-800">Use it as password for <code>docker login</code> and pip/twine (username = your name), as <code>_authToken</code> in <code>.npmrc</code>, or as <code>Authorization: Bearer</code> for the <a class="underline" href="{{ url_for('docs.index') }}">REST API</a>.</p>
+</div>
+{% endif %}
+<div class="grid lg:grid-cols-3 gap-6">
+  <div class="lg:col-span-2">
+  {% call card('Your tokens') %}
+  <table class="sortable min-w-full text-sm">
+    <thead class="text-left text-slate-500 bg-slate-50"><tr>
+      <th class="px-5 py-2 font-medium">Name</th><th class="px-3 py-2 font-medium">Prefix</th>
+      <th class="px-3 py-2 font-medium">Created</th><th class="px-3 py-2 font-medium">Last used</th><th data-nosort></th></tr></thead>
+    <tbody class="divide-y divide-slate-100">
+    {% for t in tokens %}
+      <tr><td class="px-5 py-2">{{ t.name }}</td><td class="px-3 py-2 font-mono text-xs">{{ t.prefix }}…</td>
+        <td class="px-3 py-2 text-slate-500">{{ dt(t.created_at) }}</td><td class="px-3 py-2 text-slate-500">{{ dt(t.last_used_at) }}</td>
+        <td class="px-3 py-2 text-right"><form method="post" action="{{ url_for('ui.token_revoke', tid=t.id) }}">{{ csrf() }}
+          <button class="text-red-700 hover:underline">Revoke</button></form></td></tr>
+    {% else %}<tr><td colspan="5" class="px-5 py-6 text-center text-slate-500">No tokens.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  {% endcall %}
+  </div>
+  <div class="space-y-6">
+  {% call card('New token') %}
+  <form method="post" class="p-5 space-y-3 text-sm">{{ csrf() }}
+    <input name="name" required placeholder="e.g. CI pipeline" class="w-full rounded-md border border-slate-300 px-3 py-2">
+    <button class="rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-4 py-2">Create</button>
+  </form>
+  {% endcall %}
+  {% call card('Change password') %}
+  <form method="post" action="{{ url_for('ui.change_password') }}" class="p-5 space-y-3 text-sm">{{ csrf() }}
+    <input name="current" type="password" required placeholder="Current password" autocomplete="current-password" class="w-full rounded-md border border-slate-300 px-3 py-2">
+    <input name="new" type="password" required minlength="8" placeholder="New password" autocomplete="new-password" class="w-full rounded-md border border-slate-300 px-3 py-2">
+    <button class="rounded-md bg-slate-800 text-white font-medium px-4 py-2">Change</button>
+  </form>
+  {% endcall %}
+  </div>
+</div>
+{% endblock %}

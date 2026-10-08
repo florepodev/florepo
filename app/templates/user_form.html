@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% from "_macros.html" import card, csrf, fmt_badge %}
+{% block title %}Edit {{ u.username }}{% endblock %}
+{% block content %}
+{% set input = "mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" %}
+<div class="text-sm text-slate-500"><a class="hover:underline" href="{{ url_for('ui.users') }}">Users</a> /</div>
+<h1 class="text-2xl font-semibold text-slate-900 mb-6">{{ u.username }}</h1>
+<form method="post" class="max-w-2xl space-y-6">
+  {{ csrf() }}
+  {% if u.is_ldap %}
+  <div class="rounded-md bg-indigo-50 ring-1 ring-indigo-200 text-indigo-900 text-sm px-4 py-3">
+    <b>LDAP account</b> – signs in with the directory password. Role and write access come from the
+    <a class="underline" href="{{ url_for('ui.auth_admin') }}">group mapping</a> and are refreshed at every login and sync.
+    <div class="text-xs mt-1 text-indigo-800 break-all">{{ u.ldap_dn }}{% if u.email %} · {{ u.email }}{% endif %}</div>
+    {% if u.directory_disabled %}<div class="text-amber-800 mt-1">Currently disabled in the directory (account removed, disabled or not in a mapped group).</div>{% endif %}
+  </div>
+  {% endif %}
+  {% call card('Account') %}
+  <div class="p-5 grid sm:grid-cols-2 gap-4 text-sm">
+    {% if u.is_ldap %}
+    <div><span class="text-slate-700">Role</span><div class="mt-2 font-medium">{{ u.role }}</div></div>
+    <div><span class="text-slate-700">Write access</span><div class="mt-2">{% if u.role == 'admin' %}all{% elif u.role != 'deployer' %}none{% elif not u.restrict_deploy %}all hosted repositories{% else %}{{ u.deploy_repos | map(attribute='name') | join(', ') or 'none' }}{% endif %}</div></div>
+    <input type="hidden" id="role" value="ldap">
+    {% else %}
+    <label class="block"><span class="text-slate-700">Role</span>
+      <select name="role" id="role" class="{{ input }}">
+        {% for r, label in [('reader', 'reader – read / pull only'), ('deployer', 'deployer – read + publish'), ('auditor', 'auditor – view all, reports, audit log, SBOMs (no downloads, no changes)'), ('admin', 'admin – everything')] %}
+        <option value="{{ r }}" {{ 'selected' if u.role == r }}>{{ label }}</option>{% endfor %}
+      </select></label>
+    <label class="block"><span class="text-slate-700">New password</span>
+      <input name="password" type="password" minlength="8" autocomplete="new-password" placeholder="unchanged" class="{{ input }}"></label>
+    {% endif %}
+    <label class="flex items-center gap-2 sm:col-span-2"><input type="checkbox" name="active" {{ 'checked' if u.active }}> Account active (disabling also blocks all tokens{{ ' – a lock here overrides the directory' if u.is_ldap }})</label>
+  </div>
+  {% endcall %}
+
+  {% call card('Upload quota') %}
+  {% set qm = 'default' if u.quota_bytes is none else ('unlimited' if u.quota_bytes == 0 else 'custom') %}
+  <div class="p-5 space-y-3 text-sm">
+    <p class="text-slate-600">Uploaded so far: <b>{{ human_size(used) }}</b>{% if limit %} of {{ human_size(limit) }} ({{ (100 * used / limit) | round(1) }} %){% endif %}</p>
+    <label class="flex items-center gap-2"><input type="radio" name="quota_mode" value="default" {{ 'checked' if qm == 'default' }}>
+      Global default ({{ human_size(default_quota) if default_quota else 'unlimited' }}{{ ', admins are exempt' }})</label>
+    <label class="flex items-center gap-2"><input type="radio" name="quota_mode" value="unlimited" {{ 'checked' if qm == 'unlimited' }}> Unlimited</label>
+    <label class="flex items-center gap-2"><input type="radio" name="quota_mode" value="custom" {{ 'checked' if qm == 'custom' }}> Custom:
+      <input name="quota" value="{{ human_size(u.quota_bytes) if qm == 'custom' else '' }}" placeholder="e.g. 5G" class="rounded-md border border-slate-300 px-2 py-1 w-32"></label>
+  </div>
+  {% endcall %}
+
+  <div id="deploy-section">
+  {% call card('Write access (publish, overwrite, delete)') %}
+  <div class="p-5 space-y-4 text-sm">
+    <label class="flex items-start gap-2"><input type="radio" name="deploy_scope" value="all" class="mt-1" {{ 'checked' if not u.restrict_deploy }}>
+      <span><b>All hosted repositories</b><br><span class="text-slate-500">including repositories created in the future</span></span></label>
+    <label class="flex items-start gap-2"><input type="radio" name="deploy_scope" value="selected" class="mt-1" {{ 'checked' if u.restrict_deploy }}>
+      <span><b>Selected repositories only</b></span></label>
+    <div id="repo-list" class="ml-6 grid sm:grid-cols-2 gap-2">
+      {% for r in hosted %}
+      <label class="flex items-center gap-2 rounded-md ring-1 ring-slate-200 px-3 py-2 hover:bg-slate-50">
+        <input type="checkbox" name="deploy_repos" value="{{ r.id }}" {{ 'checked' if r.id in selected }}>
+        {{ fmt_badge(r.format) }} <span>{{ r.name }}</span></label>
+      {% else %}<p class="text-slate-500">No hosted repositories yet.</p>{% endfor %}
+    </div>
+    <p class="text-xs text-slate-500">Read access is independent of this: signed-in users can read all repositories. Proxy repositories are never writable.</p>
+  </div>
+  {% endcall %}
+  </div>
+
+  <div class="flex gap-3">
+    <button class="rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-2">Save</button>
+    <a href="{{ url_for('ui.users') }}" class="rounded-md px-4 py-2 text-sm ring-1 ring-slate-300 hover:bg-slate-50">Cancel</a>
+  </div>
+</form>
+<script>
+  const role = document.getElementById('role'), sec = document.getElementById('deploy-section');
+  const list = document.getElementById('repo-list');
+  const radios = document.querySelectorAll('input[name=deploy_scope]');
+  function sync() {
+    sec.classList.toggle('hidden', role.value !== 'deployer');
+    const sel = document.querySelector('input[name=deploy_scope]:checked').value === 'selected';
+    list.classList.toggle('opacity-40', !sel);
+    list.querySelectorAll('input').forEach(i => i.disabled = !sel);
+  }
+  role.onchange = sync; radios.forEach(r => r.onchange = sync); sync();
+</script>
+{% endblock %}

@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fmt_badge, kind_badge, sev_summary, dt, card, code, csrf, pager, sort_th, size %}
+{% block title %}{{ repo.name }}{% endblock %}
+{% block content %}
+{% set host = registry_host() %}
+{% set url = base_url() %}
+<div class="flex flex-wrap items-start justify-between gap-4 mb-6">
+  <div>
+    <div class="text-sm text-slate-500"><a class="hover:underline" href="{{ url_for('ui.repos') }}">Repositories</a> /</div>
+    <h1 class="text-2xl font-semibold text-slate-900 flex items-center gap-3">{{ repo.name }} {{ fmt_badge(repo.format) }} {{ kind_badge(repo.kind) }}</h1>
+    {% if repo.description %}<p class="text-slate-600 mt-1">{{ repo.description }}</p>{% endif %}
+    {% if repo.is_proxy %}<p class="text-sm text-slate-500 mt-1">Upstream: <code>{{ repo.upstream_url }}</code></p>{% endif %}
+  </div>
+  {% if current_user.is_authenticated and current_user.is_admin %}
+  <div class="flex gap-2">
+    <form method="post" action="{{ url_for('ui.repo_rescan', name=repo.name) }}">{{ csrf() }}
+      <button class="rounded-md px-3 py-2 text-sm ring-1 ring-slate-300 bg-white hover:bg-slate-50">Re-scan all</button></form>
+    <a href="{{ url_for('ui.repo_edit', name=repo.name) }}" class="rounded-md px-3 py-2 text-sm ring-1 ring-slate-300 bg-white hover:bg-slate-50">Settings</a>
+  </div>
+  {% endif %}
+</div>
+
+<div class="grid lg:grid-cols-3 gap-6">
+  <div class="lg:col-span-2">
+  {% call card() %}
+    <form class="px-5 py-3 border-b border-slate-100 flex gap-2">
+      <input name="q" value="{{ q }}" placeholder="Search {{ 'images' if repo.format == 'docker' else 'packages' }}…" class="flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm">
+      {% if sort %}<input type="hidden" name="sort" value="{{ sort.key }}"><input type="hidden" name="dir" value="{{ sort.dir }}">{% endif %}
+      <button class="rounded-md bg-slate-800 text-white text-sm px-3">Search</button>
+    </form>
+    <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="text-left text-slate-500 bg-slate-50"><tr>
+        {{ sort_th('Image' if repo.format == 'docker' else 'Package', 'name', sort, 'px-5') }}
+        {{ sort_th('Latest', 'latest', sort) }}{{ sort_th('Security', 'security', sort) }}
+        {{ sort_th('Tags' if repo.format == 'docker' else 'Versions', 'versions', sort) }}
+        {{ sort_th('Created', 'created', sort) }}
+        {{ sort_th('Updated', 'updated', sort) }}</tr></thead>
+      <tbody class="divide-y divide-slate-100">
+      {% for p in page.items %}
+        {% set latest = p.versions[0] if p.versions else None %}
+        <tr class="hover:bg-slate-50">
+          <td class="px-5 py-2"><a class="font-medium text-indigo-700 hover:underline" href="{{ url_for('ui.package_detail', pid=p.id) }}">{{ p.display_name }}</a></td>
+          <td class="px-3 py-2">{{ latest.version if latest else '–' }}</td>
+          <td class="px-3 py-2">{{ sev_summary(latest) if latest else '' }}</td>
+          <td class="px-3 py-2 tabular-nums">{{ p.versions | length }}</td>
+          <td class="px-3 py-2 text-slate-500">{{ dt(p.created_at) }}</td>
+          <td class="px-3 py-2 text-slate-500">{{ dt(p.updated_at) }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="px-5 py-8 text-center text-slate-500">
+          {% if repo.is_proxy %}Nothing cached yet – packages are fetched from the upstream on first request.{% else %}No packages published yet.{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {{ pager(page) }}
+  {% endcall %}
+  </div>
+
+  <div class="space-y-6">
+  {% call card('Setup') %}
+  <div class="p-5 space-y-4 text-sm">
+    <p class="text-slate-600">Use an <a class="text-indigo-700 underline" href="{{ url_for('ui.tokens') }}">API token</a> as password.</p>
+    {% if repo.format == 'docker' %}
+      <div><div class="font-medium mb-1">Login</div>{{ code('c1', 'docker login ' ~ host) }}</div>
+      {% if repo.is_proxy %}
+        <div><div class="font-medium mb-1">Pull through the cache</div>
+        {{ code('c2', 'docker pull ' ~ host ~ '/' ~ repo.name ~ '/' ~ ('library/nginx:latest' if 'docker.io' in (repo.upstream_url or 'docker.io') else 'owner/image:tag')) }}</div>
+        <p class="text-xs text-slate-500">For Docker Hub, <code>library/</code> is added automatically for official images – <code>{{ host }}/{{ repo.name }}/nginx</code> works as well.</p>
+        <div><div class="font-medium mb-1">Dockerfile</div>{{ code('c3', 'FROM ' ~ host ~ '/' ~ repo.name ~ '/python:3.12-slim') }}</div>
+      {% else %}
+        <div><div class="font-medium mb-1">Push</div>{{ code('c2', 'docker tag myimage:1.0 ' ~ host ~ '/' ~ repo.name ~ '/myimage:1.0\ndocker push ' ~ host ~ '/' ~ repo.name ~ '/myimage:1.0') }}</div>
+        <div><div class="font-medium mb-1">Pull</div>{{ code('c3', 'docker pull ' ~ host ~ '/' ~ repo.name ~ '/myimage:1.0') }}</div>
+      {% endif %}
+      {% if url.startswith('http://') %}<p class="text-xs text-amber-700">Without TLS, <code>{{ host }}</code> must be listed in the Docker daemon's <code>insecure-registries</code> (localhost is exempt).</p>{% endif %}
+    {% elif repo.format == 'pypi' %}
+      <div><div class="font-medium mb-1">pip / pip.conf</div>{{ code('c1', '[global]\nindex-url = ' ~ url.replace('://', '://<user>:<token>@') ~ '/pypi/' ~ repo.name ~ '/simple/') }}</div>
+      <div><div class="font-medium mb-1">uv</div>{{ code('c2', '[[tool.uv.index]]\nname = "' ~ repo.name ~ '"\nurl = "' ~ url ~ '/pypi/' ~ repo.name ~ '/simple/"\ndefault = true') }}</div>
+      {% if not repo.is_proxy %}
+      <div><div class="font-medium mb-1">Upload (~/.pypirc)</div>{{ code('c3', '[distutils]\nindex-servers = ' ~ repo.name ~ '\n\n[' ~ repo.name ~ ']\nrepository = ' ~ url ~ '/pypi/' ~ repo.name ~ '/\nusername = <user>\npassword = <token>') }}</div>
+      {{ code('c4', 'twine upload -r ' ~ repo.name ~ ' dist/*') }}
+      {% endif %}
+    {% elif repo.format == 'npm' %}
+      {% set reg = url ~ '/npm/' ~ repo.name ~ '/' %}
+      <div><div class="font-medium mb-1">.npmrc</div>{{ code('c1', 'registry=' ~ reg ~ '\n' ~ reg.split(':', 1)[1] ~ ':_authToken=<token>') }}</div>
+      <div><div class="font-medium mb-1">or log in</div>{{ code('c2', 'npm login --registry=' ~ reg ~ ' --auth-type=legacy') }}</div>
+      {% if not repo.is_proxy %}
+      <div><div class="font-medium mb-1">Publish</div>{{ code('c3', 'npm publish --registry=' ~ reg) }}</div>
+      {% endif %}
+    {% elif repo.format == 'deb' %}
+      {% set base = url ~ '/deb/' ~ repo.name %}
+      {% if repo.is_proxy %}
+        <div><div class="font-medium mb-1">/etc/apt/sources.list.d/{{ repo.name }}.sources</div>{{ code('c1', 'Types: deb\nURIs: ' ~ base ~ '\nSuites: bookworm bookworm-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg') }}</div>
+        <p class="text-xs text-slate-500">The upstream's own signatures are passed through unchanged – keep the distribution's keyring. Adjust the suites to your release.</p>
+      {% else %}
+        <div><div class="font-medium mb-1">Trust the repository key</div>{{ code('c1', 'curl -fsSL ' ~ base ~ '/key.gpg -o /etc/apt/keyrings/' ~ repo.name ~ '.gpg') }}</div>
+        <div><div class="font-medium mb-1">/etc/apt/sources.list.d/{{ repo.name }}.list</div>{{ code('c2', 'deb [signed-by=/etc/apt/keyrings/' ~ repo.name ~ '.gpg] ' ~ base ~ ' stable main') }}</div>
+        <div><div class="font-medium mb-1">Upload</div>{{ code('c3', 'curl -u <user>:<token> --upload-file hello_1.0_amd64.deb \\\n  "' ~ base ~ '/upload/?distribution=stable&component=main"') }}</div>
+      {% endif %}
+      {% if not repo.public %}<div><div class="font-medium mb-1">/etc/apt/auth.conf.d/{{ repo.name }}.conf</div>{{ code('c4', 'machine ' ~ host ~ '/deb/' ~ repo.name ~ ' login <user> password <token>') }}</div>{% endif %}
+    {% elif repo.format == 'rpm' %}
+      {% set base = url ~ '/rpm/' ~ repo.name %}
+      {% if repo.is_proxy %}
+        <div><div class="font-medium mb-1">/etc/yum.repos.d/{{ repo.name }}.repo</div>{{ code('c1', '[' ~ repo.name ~ '-baseos]\nname=BaseOS via Florepo\nbaseurl=' ~ base ~ '/$releasever/BaseOS/$basearch/os/\ngpgcheck=1\ngpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-Rocky-9' ~ ('' if repo.public else '\nusername=<user>\npassword=<token>')) }}</div>
+        <p class="text-xs text-slate-500">Paths below the repository mirror the upstream layout; package signatures are verified with the distribution's keys.</p>
+      {% else %}
+        <div><div class="font-medium mb-1">/etc/yum.repos.d/{{ repo.name }}.repo</div>{{ code('c1', '[' ~ repo.name ~ ']\nname=' ~ repo.name ~ '\nbaseurl=' ~ base ~ '/\nrepo_gpgcheck=1\ngpgcheck=0\ngpgkey=' ~ base ~ '/key.asc' ~ ('' if repo.public else '\nusername=<user>\npassword=<token>')) }}</div>
+        <div><div class="font-medium mb-1">Upload</div>{{ code('c2', 'curl -u <user>:<token> --upload-file hello-1.0-1.x86_64.rpm ' ~ base ~ '/upload/') }}</div>
+      {% endif %}
+    {% elif repo.format == 'apk' %}
+      {% set base = url.replace('://', '://<user>:<token>@') if not repo.public else url %}
+      {% if repo.is_proxy %}
+        <div><div class="font-medium mb-1">/etc/apk/repositories</div>{{ code('c1', base ~ '/apk/' ~ repo.name ~ '/v3.20/main\n' ~ base ~ '/apk/' ~ repo.name ~ '/v3.20/community') }}</div>
+        <p class="text-xs text-slate-500">The upstream's APKINDEX signatures are passed through – Alpine's own keys stay valid.</p>
+      {% else %}
+        <div><div class="font-medium mb-1">Trust the repository key</div>{{ code('c1', 'wget -O /etc/apk/keys/' ~ apk_key_name ~ ' ' ~ url ~ '/apk/' ~ repo.name ~ '/key.rsa.pub') }}</div>
+        <div><div class="font-medium mb-1">/etc/apk/repositories</div>{{ code('c2', base ~ '/apk/' ~ repo.name ~ '/latest/main') }}</div>
+        <div><div class="font-medium mb-1">Upload</div>{{ code('c3', 'curl -u <user>:<token> --upload-file hello-1.0-r0.apk \\\n  "' ~ url ~ '/apk/' ~ repo.name ~ '/upload/?branch=latest&repository=main"') }}</div>
+      {% endif %}
+    {% elif repo.format == 'maven' %}
+      {% set base = url ~ '/maven/' ~ repo.name %}
+      <div><div class="font-medium mb-1">~/.m2/settings.xml</div>{{ code('c1', '<settings>\n  <servers>\n    <server>\n      <id>' ~ repo.name ~ '</id>\n      <username>USER</username>\n      <password>API_TOKEN</password>\n    </server>\n  </servers>' ~ ('\n  <mirrors>\n    <mirror>\n      <id>' ~ repo.name ~ '</id>\n      <mirrorOf>central</mirrorOf>\n      <url>' ~ base ~ '/</url>\n    </mirror>\n  </mirrors>' if repo.is_proxy else '') ~ '\n</settings>') }}</div>
+      {% if not repo.is_proxy %}
+      <div><div class="font-medium mb-1">pom.xml</div>{{ code('c2', '<distributionManagement>\n  <repository>\n    <id>' ~ repo.name ~ '</id>\n    <url>' ~ base ~ '/</url>\n  </repository>\n  <snapshotRepository>\n    <id>' ~ repo.name ~ '</id>\n    <url>' ~ base ~ '/</url>\n  </snapshotRepository>\n</distributionManagement>') }}</div>
+      {{ code('c3', 'mvn deploy') }}
+      {% endif %}
+      <div><div class="font-medium mb-1">Gradle (settings.gradle.kts)</div>{{ code('c4', 'dependencyResolutionManagement {\n  repositories {\n    maven {\n      url = uri("' ~ base ~ '/")\n      credentials { username = "<user>"; password = "<token>" }\n    }\n  }\n}') }}</div>
+    {% elif repo.format == 'go' %}
+      {% set gp = url.replace('://', '://<user>:<token>@') ~ '/go/' ~ repo.name %}
+      <div><div class="font-medium mb-1">Environment</div>{{ code('c1', 'go env -w GOPROXY=' ~ gp ~ (',direct' if repo.is_proxy else ',https://proxy.golang.org,direct') ~ ('\ngo env -w GONOSUMDB=git.example.com/*' if not repo.is_proxy else '\n# checksum DB through the cache (no direct access needed):\ngo env -w GOSUMDB="sum.golang.org ' ~ gp ~ '/sumdb/sum.golang.org"')) }}</div>
+      {% if not repo.is_proxy %}
+      <div><div class="font-medium mb-1">Publish a version</div>{{ code('c2', 'git archive --format=zip -o v1.2.0.zip v1.2.0\ncurl -u <user>:<token> --upload-file v1.2.0.zip \\\n  ' ~ url ~ '/go/' ~ repo.name ~ '/git.example.com/team/mymod/@v/v1.2.0.zip') }}</div>
+      <p class="text-xs text-slate-500">Upper-case letters in module paths are written as <code>!</code> + lower-case letter (GOPROXY encoding).</p>
+      {% endif %}
+    {% elif repo.format == 'nuget' %}
+      {% set feed = url ~ '/nuget/' ~ repo.name ~ '/index.json' %}
+      <div><div class="font-medium mb-1">Add the source</div>{{ code('c1', 'dotnet nuget add source ' ~ feed ~ ' -n ' ~ repo.name ~ ' \\\n  -u <user> -p <token> --store-password-in-clear-text') }}</div>
+      {% if url.startswith('http://') %}<p class="text-xs text-amber-700">.NET 9+ refuses plain HTTP sources unless <code>allowInsecureConnections="true"</code> is set for the source in nuget.config.</p>{% endif %}
+      {% if not repo.is_proxy %}
+      <div><div class="font-medium mb-1">Push</div>{{ code('c2', 'dotnet nuget push bin/Release/MyLib.1.0.0.nupkg -s ' ~ repo.name ~ ' -k <token>') }}</div>
+      {% endif %}
+    {% elif repo.format == 'cargo' %}
+      {% set idx = 'sparse+' ~ url ~ '/cargo/' ~ repo.name ~ '/index/' %}
+      <div><div class="font-medium mb-1">~/.cargo/config.toml</div>{{ code('c1', ('[source.crates-io]\nreplace-with = "' ~ repo.name ~ '"\n\n[source.' ~ repo.name ~ ']\nregistry = "' ~ idx ~ '"\n\n' if repo.is_proxy else '') ~ '[registries.' ~ repo.name ~ ']\nindex = "' ~ idx ~ '"\n\n[registry]\nglobal-credential-providers = ["cargo:token"]') }}</div>
+      <div><div class="font-medium mb-1">Token</div>{{ code('c2', 'cargo login --registry ' ~ repo.name ~ ' <token>') }}</div>
+      {% if not repo.is_proxy %}
+      <div><div class="font-medium mb-1">Publish / depend on it</div>{{ code('c3', 'cargo publish --registry ' ~ repo.name ~ '\n\n# Cargo.toml of consumers\n[dependencies]\nmylib = { version = "0.1", registry = "' ~ repo.name ~ '" }') }}</div>
+      {% endif %}
+    {% elif repo.format == 'helm' %}
+      {% set hb = url ~ '/helm/' ~ repo.name %}
+      <div><div class="font-medium mb-1">Add the repository</div>{{ code('c1', 'helm repo add ' ~ repo.name ~ ' ' ~ hb ~ ' --username <user> --password <token>\nhelm repo update\nhelm install demo ' ~ repo.name ~ '/<chart>') }}</div>
+      {% if not repo.is_proxy %}
+      <div><div class="font-medium mb-1">Upload a chart</div>{{ code('c2', 'helm package ./mychart\ncurl -u <user>:<token> --data-binary @mychart-0.1.0.tgz ' ~ hb ~ '/api/charts\n\n# or with the ChartMuseum plugin\nhelm cm-push mychart-0.1.0.tgz ' ~ repo.name) }}</div>
+      {% endif %}
+    {% elif repo.format == 'generic' %}
+      {% set gb = url ~ '/generic/' ~ repo.name %}
+      {% if not repo.is_proxy %}
+      <div><div class="font-medium mb-1">Upload</div>{{ code('c1', 'curl -u <user>:<token> -T ./tool-linux-amd64.tar.gz \\\n  ' ~ gb ~ '/tools/mytool/1.4.0/tool-linux-amd64.tar.gz') }}</div>
+      {% endif %}
+      <div><div class="font-medium mb-1">Download</div>{{ code('c2', 'curl -fu <user>:<token> -O ' ~ gb ~ '/' ~ ('<path below the upstream URL>' if repo.is_proxy else 'tools/mytool/1.4.0/tool-linux-amd64.tar.gz')) }}</div>
+      <p class="text-xs text-slate-500">Path layout: <code>&lt;package path&gt;/&lt;version&gt;/&lt;file&gt;</code>. Listing: <code>GET {{ gb }}/&lt;prefix&gt;/</code>.</p>
+    {% endif %}
+    <p class="text-xs text-slate-500">Full reference: <a class="text-indigo-700 underline" href="{{ url_for('docs.guides') }}#{{ repo.format }}">Setup guide</a> · <a class="text-indigo-700 underline" href="{{ url_for('docs.index') }}#{{ repo.format }}">API docs</a></p>
+  </div>
+  {% endcall %}
+
+  {% call card('Policy') %}
+  <dl class="p-5 text-sm space-y-2">
+    <div class="flex justify-between"><dt class="text-slate-500">Access</dt><dd>{{ 'public' if repo.public else 'authenticated only' }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">Download blocking</dt><dd>{{ ('from ' ~ repo.block_severity) if repo.block_severity else 'off' }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">Overwrite</dt><dd>{{ 'allowed' if repo.allow_redeploy else 'immutable' }}</dd></div>
+    {% if not repo.is_proxy and current_user.is_authenticated and current_user.is_admin %}
+    <div class="pt-2"><dt class="text-slate-500 mb-1">Can publish</dt>
+      <dd>{% for u in deployers %}<span class="inline-block mr-1 mb-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs">{{ u.username }}</span>{% else %}<span class="text-slate-400 text-xs">admins only</span>{% endfor %}</dd></div>
+    {% endif %}
+    {% if repo.distro %}<div class="flex justify-between"><dt class="text-slate-500">Distribution</dt><dd>{{ repo.distro }}</dd></div>{% endif %}
+  </dl>
+  {% endcall %}
+
+  {% call card('Storage') %}
+  <div class="p-5 text-sm space-y-2">
+    <div class="flex justify-between"><span class="text-slate-500">Used</span><span class="tabular-nums">{{ size(usage.used_bytes) }}</span></div>
+    <div class="flex justify-between"><span class="text-slate-500">{{ 'Cache size limit' if repo.is_proxy else 'Quota' }}</span><span class="tabular-nums">{{ size(usage.quota_bytes) if usage.quota_bytes else 'unlimited' }}</span></div>
+    {% if usage.quota_bytes %}
+    {% set pct = [usage.percent, 100] | min %}
+    <div class="h-2 rounded bg-slate-100 overflow-hidden"><div class="h-2 {{ 'bg-red-500' if pct >= 90 else 'bg-amber-400' if pct >= 75 else 'bg-emerald-500' }}" style="width: {{ pct }}%"></div></div>
+    <div class="text-xs text-slate-500">{{ usage.percent }} % used{% if repo.is_proxy %} – least recently used artifacts are evicted above the limit{% endif %}</div>
+    {% endif %}
+  </div>
+  {% endcall %}
+
+  {% if repo.is_proxy %}
+  {% call card('Cache') %}
+  <dl class="p-5 text-sm space-y-2">
+    <div class="flex justify-between"><dt class="text-slate-500">Cached versions</dt><dd class="tabular-nums">{{ cache[0] }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">Size on disk</dt><dd class="tabular-nums">{{ size(cache[1]) }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">Retention</dt>
+      <dd>{{ ('deleted ' ~ repo.cache_retention_days ~ ' days after last download') if repo.cache_retention_days else 'keep forever' }}</dd></div>
+  </dl>
+  {% if current_user.is_authenticated and current_user.is_admin %}
+  <form method="post" action="{{ url_for('ui.repo_cache_purge', name=repo.name) }}" class="px-5 pb-5 flex flex-wrap items-center gap-2 text-sm"
+        onsubmit="return confirm('Remove cached artifacts? They are fetched again from the upstream when requested.')">{{ csrf() }}
+    <span class="text-slate-500">Purge entries not used for</span>
+    <input name="older_than_days" type="number" min="0" placeholder="all" class="w-20 rounded-md border border-slate-300 px-2 py-1">
+    <span class="text-slate-500">days</span>
+    <button class="rounded-md px-3 py-1.5 ring-1 ring-red-300 text-red-700 bg-white hover:bg-red-50">Purge cache</button>
+  </form>
+  {% endif %}
+  {% endcall %}
+  {% endif %}
+  </div>
+</div>
+{% endblock %}

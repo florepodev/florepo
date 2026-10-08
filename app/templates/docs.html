@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% from "_macros.html" import card, code %}
+{% block title %}API docs{% endblock %}
+{% block content %}
+{% set method_cls = {'get': 'bg-sky-100 text-sky-800', 'post': 'bg-emerald-100 text-emerald-800',
+                     'put': 'bg-amber-100 text-amber-800', 'patch': 'bg-violet-100 text-violet-800',
+                     'delete': 'bg-red-100 text-red-800'} %}
+{% set auth_label = {'none': ('no auth', 'text-slate-400'), 'optional': ('auth optional (public repos)', 'text-slate-500'),
+                     'user': ('authenticated', 'text-slate-600'), 'deployer': ('write permission on repo', 'text-amber-700'),
+                     'audit': ('admin or auditor', 'text-violet-700'),
+                     'admin': ('admin', 'text-red-700')} %}
+<div class="flex flex-wrap items-start justify-between gap-4 mb-6">
+  <div>
+    <h1 class="text-2xl font-semibold text-slate-900">API documentation</h1>
+    <p class="text-slate-600 mt-1 max-w-3xl">{{ spec.info.description }} Version {{ spec.info.version }}.</p>
+  </div>
+  <a href="{{ url_for('docs.openapi_json') }}" class="rounded-md px-3 py-2 text-sm ring-1 ring-slate-300 bg-white hover:bg-slate-50">OpenAPI 3.1 JSON</a>
+</div>
+
+<div class="grid lg:grid-cols-4 gap-6">
+  <nav class="lg:col-span-1 text-sm space-y-1 lg:sticky lg:top-6 self-start">
+    <a href="#auth" class="block rounded px-2 py-1 hover:bg-slate-100">Authentication</a>
+    {% for tag, items in groups.items() if items %}
+    <a href="#{{ tag | lower | replace(' ', '-') | replace('&', '') }}" class="block rounded px-2 py-1 hover:bg-slate-100">{{ tag }} <span class="text-slate-400">{{ items | length }}</span></a>
+    {% endfor %}
+    <div class="pt-3">
+      <input id="doc-filter" placeholder="Filter endpoints…" class="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+    </div>
+  </nav>
+
+  <div class="lg:col-span-3 space-y-8">
+    <section id="auth">
+    {% call card('Authentication') %}
+    <div class="p-5 text-sm space-y-3 text-slate-700">
+      <p>Create an API token under <a class="text-indigo-700 underline" href="{{ url_for('ui.tokens') }}">API tokens</a> (or via <code>POST /api/v1/tokens</code>). It can be used as:</p>
+      <ul class="list-disc ml-5 space-y-1">
+        <li><code>Authorization: Bearer flo_…</code> – REST API and npm (<code>_authToken</code>)</li>
+        <li>HTTP Basic password – <code>docker login</code>, pip, twine (username = your user)</li>
+      </ul>
+      <p>Tokens inherit the permissions of their user: <b>reader</b> may read, <b>deployer</b> may publish to all or only to selected hosted repositories, <b>admin</b> may do everything incl. reports and settings.
+         Public repositories can be read anonymously. Errors are returned as <code>{"error": "…"}</code>.</p>
+      <p>List endpoints accept <code>sort</code>/<code>dir</code> and paginated ones <code>page</code>/<code>per_page</code>; the response contains <code>items</code>, <code>total</code> and <code>pages</code>.</p>
+      {{ code('auth-ex', "export TOKEN=flo_xxxxxxxx\ncurl -H \"Authorization: Bearer $TOKEN\" " ~ spec.servers[0].url ~ "/api/v1/whoami") }}
+    </div>
+    {% endcall %}
+    </section>
+
+    {% for tag, items in groups.items() if items %}
+    <section id="{{ tag | lower | replace(' ', '-') | replace('&', '') }}" class="doc-group">
+      <h2 class="text-lg font-semibold text-slate-900 mb-3">{{ tag }}</h2>
+      <div class="space-y-3">
+      {% for e in items %}
+        <details class="doc-op bg-white rounded-lg shadow-sm ring-1 ring-slate-200 group" data-text="{{ (e.method ~ ' ' ~ e.path ~ ' ' ~ e.op.summary) | lower }}">
+          <summary class="flex flex-wrap items-center gap-3 px-4 py-3 cursor-pointer list-none">
+            <span class="w-16 text-center rounded px-2 py-0.5 text-xs font-bold uppercase {{ method_cls[e.method] }}">{{ e.method }}</span>
+            <code class="text-sm text-slate-900">{{ e.path }}</code>
+            <span class="text-sm text-slate-600 flex-1">{{ e.op.summary }}</span>
+            {% set a = auth_label[e.op['x-auth']] %}<span class="text-xs {{ a[1] }}">{{ a[0] }}</span>
+          </summary>
+          <div class="border-t border-slate-100 px-4 py-4 space-y-4 text-sm">
+            {% if e.op.description %}<p class="text-slate-700">{{ e.op.description }}</p>{% endif %}
+            {% if e.op.parameters %}
+            <table class="min-w-full text-sm">
+              <thead class="text-left text-slate-500"><tr><th class="py-1 pr-4 font-medium">Parameter</th><th class="py-1 pr-4 font-medium">In</th><th class="py-1 pr-4 font-medium">Type</th><th class="py-1 font-medium">Description</th></tr></thead>
+              <tbody class="divide-y divide-slate-100">
+              {% for p in e.op.parameters %}
+                <tr><td class="py-1 pr-4"><code>{{ p.name }}</code>{% if p.required %}<span class="text-red-600">*</span>{% endif %}</td>
+                  <td class="py-1 pr-4 text-slate-500">{{ p['in'] }}</td>
+                  <td class="py-1 pr-4 text-slate-500">{{ p.schema.type }}{% if p.schema.default is defined %} = {{ p.schema.default }}{% endif %}</td>
+                  <td class="py-1 text-slate-600">{{ p.description }}</td></tr>
+              {% endfor %}
+              </tbody>
+            </table>
+            {% endif %}
+            {% if e.op.requestBody %}
+            {% set schema = e.op.requestBody.content['application/json'].schema %}
+            <div>
+              <div class="font-medium text-slate-700 mb-1">JSON body</div>
+              <table class="min-w-full text-sm">
+                <tbody class="divide-y divide-slate-100">
+                {% for name, prop in schema.properties.items() %}
+                  <tr><td class="py-1 pr-4 w-48"><code>{{ name }}</code>{% if name in (schema.required or []) %}<span class="text-red-600">*</span>{% endif %}</td>
+                    <td class="py-1 pr-4 text-slate-500 w-40">{% if prop.enum %}{{ prop.enum | reject('none') | join(' | ') }}{% else %}{{ prop.type if prop.type is string else (prop.type | join(' | ')) }}{% endif %}</td>
+                    <td class="py-1 text-slate-600">{{ prop.description or '' }}</td></tr>
+                {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% endif %}
+            <div class="flex flex-wrap gap-2 text-xs">
+              {% for status, r in e.op.responses.items() %}<span class="rounded bg-slate-100 px-2 py-0.5"><b>{{ status }}</b> {{ r.description }}</span>{% endfor %}
+            </div>
+            {% if e.example %}{{ code('ex-' ~ e.method ~ e.path, e.example) }}{% endif %}
+          </div>
+        </details>
+      {% endfor %}
+      </div>
+    </section>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  document.getElementById('doc-filter').addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    document.querySelectorAll('.doc-op').forEach(el => el.classList.toggle('hidden', q && !el.dataset.text.includes(q)));
+    document.querySelectorAll('.doc-group').forEach(g =>
+      g.classList.toggle('hidden', !g.querySelector('.doc-op:not(.hidden)')));
+  });
+</script>
+{% endblock %}

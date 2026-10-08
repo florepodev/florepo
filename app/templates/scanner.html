@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% from "_macros.html" import card, csrf, dt, scan_status %}
+{% block title %}Scanner{% endblock %}
+{% macro age(d) -%}
+  {%- if d -%}
+    {%- set h = ((now - d).total_seconds() / 3600) -%}
+    {%- if h < 0 %}in {{ (-h) | round(1) }} h{% elif h < 1 %}{{ (h * 60) | int }} min ago{% elif h < 48 %}{{ h | round(1) }} h ago{% else %}{{ (h / 24) | int }} days ago{% endif -%}
+  {%- endif -%}
+{%- endmacro %}
+{% block content %}
+{% set input = "mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" %}
+<div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+  <h1 class="text-2xl font-semibold text-slate-900">Scanner & vulnerability database</h1>
+  <form method="post" action="{{ url_for('ui.scanner_update_now') }}">{{ csrf() }}
+    <button class="rounded-md bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2"
+            {{ 'disabled' if running or requested or not info }}>
+      {% if running %}Update running…{% elif requested %}Update requested…{% else %}Update DB now{% endif %}</button>
+  </form>
+</div>
+
+{% if not info %}
+<div class="mb-6 rounded-md bg-red-50 ring-1 ring-red-200 text-red-800 px-4 py-3 text-sm">Trivy is not installed – only OSV.dev lookups for PyPI/npm are performed, Docker images are not scanned.</div>
+{% endif %}
+{% if not worker_alive %}
+<div class="mb-6 rounded-md bg-amber-50 ring-1 ring-amber-200 text-amber-900 px-4 py-3 text-sm">⚠ The scan worker is not responding{% if heartbeat %} (last heartbeat {{ dt(heartbeat) }} UTC){% endif %}. Scans and DB updates only run while the worker is up (<code>docker compose up -d worker</code>).</div>
+{% endif %}
+
+<div class="grid lg:grid-cols-3 gap-6 mb-6">
+  {% call card('Trivy vulnerability DB') %}
+  <dl class="p-5 text-sm space-y-2">
+    {% if vuln_db %}
+      {% set old = vuln_db.updated and (now - vuln_db.updated).total_seconds() > 172800 %}
+      <div class="flex justify-between"><dt class="text-slate-500">Signatures as of</dt>
+        <dd class="text-right {{ 'text-red-700 font-semibold' if old else 'text-emerald-700 font-semibold' }}">{{ dt(vuln_db.updated) }}<div class="text-xs font-normal text-slate-500">{{ age(vuln_db.updated) }}</div></dd></div>
+      <div class="flex justify-between"><dt class="text-slate-500">Downloaded</dt><dd>{{ dt(vuln_db.downloaded) }}</dd></div>
+      <div class="flex justify-between"><dt class="text-slate-500">Next DB available</dt><dd>{{ dt(vuln_db.next) }}</dd></div>
+      <div class="flex justify-between"><dt class="text-slate-500">Schema version</dt><dd>v{{ vuln_db.schema }}</dd></div>
+      {% if old %}<p class="text-xs text-red-700 pt-1">Signatures are older than 48 h – new CVEs are not detected.</p>{% endif %}
+    {% else %}
+      <div class="text-slate-500">No DB downloaded yet. The worker fetches it on its next run.</div>
+    {% endif %}
+  </dl>
+  {% endcall %}
+
+  {% call card('Java DB & scanner') %}
+  <dl class="p-5 text-sm space-y-2">
+    <div class="flex justify-between"><dt class="text-slate-500">Trivy</dt><dd>{{ ('v' ~ info.Version) if info else '–' }}</dd></div>
+    {% if java_db %}
+      <div class="flex justify-between"><dt class="text-slate-500">Java DB as of</dt><dd class="text-right">{{ dt(java_db.updated) }}<div class="text-xs text-slate-500">{{ age(java_db.updated) }}</div></dd></div>
+    {% else %}
+      <div class="flex justify-between"><dt class="text-slate-500">Java DB</dt><dd class="text-slate-400">not present</dd></div>
+    {% endif %}
+    <div class="flex justify-between"><dt class="text-slate-500">OSV.dev</dt><dd>{{ 'enabled' if config.OSV_ENABLED else 'disabled' }}</dd></div>
+    <div class="flex justify-between"><dt class="text-slate-500">Worker</dt>
+      <dd>{% if worker_alive %}<span class="text-emerald-700">running</span>{% else %}<span class="text-red-700">offline</span>{% endif %}</dd></div>
+    {% if env_db_repo %}<div class="flex justify-between"><dt class="text-slate-500">DB source</dt><dd>{{ env_db_repo }}</dd></div>{% endif %}
+  </dl>
+  {% endcall %}
+
+  {% call card('Scan queue') %}
+  <dl class="p-5 text-sm space-y-2">
+    {% for st in ['pending', 'running', 'done', 'failed', 'none'] %}
+      <div class="flex justify-between"><dt>{{ scan_status(st) }}</dt><dd class="tabular-nums">{{ counts.get(st, 0) }}</dd></div>
+    {% endfor %}
+    {% if stale_db %}
+      <div class="pt-2 text-xs text-amber-800">{{ stale_db }} versions were scanned with an older DB.</div>
+    {% endif %}
+    <div class="flex flex-wrap gap-2 pt-2">
+      {% for scope, label in [('stale', 'Re-scan outdated'), ('failed', 'Re-scan failed'), ('all', 'Re-scan everything')] %}
+      <form method="post" action="{{ url_for('ui.scanner_rescan') }}">{{ csrf() }}<input type="hidden" name="scope" value="{{ scope }}">
+        <button class="rounded px-2 py-1 text-xs ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-40" {{ 'disabled' if scope == 'stale' and not stale_db }}>{{ label }}</button></form>
+      {% endfor %}
+    </div>
+  </dl>
+  {% endcall %}
+</div>
+
+<div class="grid lg:grid-cols-3 gap-6 mb-6">
+  <div>
+  {% call card('Schedule') %}
+  <form method="post" class="p-5 space-y-4 text-sm">{{ csrf() }}
+    <label class="block"><span class="text-slate-700 font-medium">Update signatures (DB)</span>
+      <select name="trivy_db_interval_hours" class="{{ input }}">
+        {% for h, label in db_intervals %}<option value="{{ h }}" {{ 'selected' if s.trivy_db_interval_hours == h }}>{{ label }}</option>{% endfor %}
+      </select>
+      <span class="text-xs text-slate-500">The public Trivy DB is rebuilt about every 6 hours.</span></label>
+    <label class="flex items-start gap-2"><input type="checkbox" name="trivy_java_db" class="mt-1" {{ 'checked' if s.trivy_java_db }}>
+      <span>Also update the Java DB <span class="block text-xs text-slate-500">required for JAR files inside images (~1 GB)</span></span></label>
+    <label class="block"><span class="text-slate-700 font-medium">Re-scan existing artifacts</span>
+      <select name="rescan_interval_hours" class="{{ input }}">
+        {% for h, label in rescan_intervals %}<option value="{{ h }}" {{ 'selected' if s.rescan_interval_hours == h }}>{{ label }}</option>{% endfor %}
+      </select></label>
+    <label class="flex items-start gap-2"><input type="checkbox" name="rescan_after_db_update" class="mt-1" {{ 'checked' if s.rescan_after_db_update }}>
+      <span>Re-scan everything after each DB update <span class="block text-xs text-slate-500">detects new CVEs immediately, but adds load</span></span></label>
+    <button class="rounded-md bg-slate-800 text-white font-medium px-4 py-2">Save</button>
+    <div class="text-xs text-slate-500 border-t border-slate-100 pt-3 space-y-1">
+      <div>Last update: {{ dt(parse_iso(last.at)) if last.at else '–' }}{% if last.at %} ({{ 'ok' if last.ok else 'failed' }}){% endif %}</div>
+      <div>Next scheduled update: {{ dt(next_run) if next_run else ('on the next worker cycle' if s.trivy_db_interval_hours else 'manual only') }}</div>
+    </div>
+  </form>
+  {% endcall %}
+  </div>
+
+  <div class="lg:col-span-2">
+  {% call card('Update history') %}
+  <div class="overflow-x-auto">
+  <table class="sortable min-w-full text-sm">
+    <thead class="text-left text-slate-500 bg-slate-50"><tr>
+      <th class="px-5 py-2 font-medium">Time (UTC)</th><th class="px-3 py-2 font-medium">Trigger</th>
+      <th class="px-3 py-2 font-medium">Result</th><th class="px-3 py-2 font-medium">Duration</th>
+      <th class="px-3 py-2 font-medium">DB as of</th></tr></thead>
+    <tbody class="divide-y divide-slate-100">
+    {% for h in history %}
+      <tr class="align-top">
+        <td class="px-5 py-2 whitespace-nowrap text-slate-500">{{ dt(parse_iso(h.at)) }}</td>
+        <td class="px-3 py-2">{{ {'manual': 'manual', 'schedule': 'schedule', 'missing': 'initial download'}.get(h.reason, h.reason) }}</td>
+        <td class="px-3 py-2" data-sort="{{ 1 if h.ok else 0 }}">{% if h.ok %}<span class="text-emerald-700">ok</span> <span class="text-xs text-slate-400">{{ h.steps | join(', ') }}</span>
+          {% else %}<span class="text-red-700">error</span><div class="text-xs text-red-700 max-w-md break-words">{{ (h.error or '')[:300] }}</div>{% endif %}</td>
+        <td class="px-3 py-2 tabular-nums" data-sort="{{ h.duration_s }}">{{ h.duration_s }} s</td>
+        <td class="px-3 py-2 whitespace-nowrap">{{ dt(parse_ts(h.db_updated_at)) }}</td>
+      </tr>
+    {% else %}<tr><td colspan="5" class="px-5 py-6 text-center text-slate-500">No updates yet.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endcall %}
+  </div>
+</div>
+
+<div class="mb-6">
+{% call card('Workers (' ~ (workers | length) ~ ' running)') %}
+<div class="overflow-x-auto">
+<table class="sortable min-w-full text-sm">
+  <thead class="text-left text-slate-500 bg-slate-50"><tr>
+    <th class="px-5 py-2 font-medium">Worker</th><th class="px-3 py-2 font-medium">Role</th>
+    <th class="px-3 py-2 font-medium">Scanned</th><th class="px-3 py-2 font-medium">Failed</th>
+    <th class="px-3 py-2 font-medium">Started (UTC)</th><th class="px-3 py-2 font-medium">Last heartbeat</th></tr></thead>
+  <tbody class="divide-y divide-slate-100">
+  {% for w in workers %}
+    <tr><td class="px-5 py-2 font-mono text-xs">{{ w.id }}</td>
+      <td class="px-3 py-2" data-sort="{{ 0 if w.leader else 1 }}">{% if w.leader %}<span class="rounded bg-indigo-100 text-indigo-800 px-1.5 py-0.5 text-xs font-medium">leader</span>{% else %}<span class="text-slate-500 text-xs">scanner</span>{% endif %}</td>
+      <td class="px-3 py-2 tabular-nums">{{ w.scanned or 0 }}</td>
+      <td class="px-3 py-2 tabular-nums">{{ w.failed or 0 }}</td>
+      <td class="px-3 py-2 text-slate-500">{{ dt(parse_iso(w.started)) }}</td>
+      <td class="px-3 py-2 text-slate-500">{{ dt(parse_iso(w.at)) }}</td></tr>
+  {% else %}<tr><td colspan="6" class="px-5 py-6 text-center text-slate-500">No worker running.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="px-5 py-3 text-xs text-slate-500 border-t border-slate-100">Scans are distributed over all workers; the leader additionally runs DB updates, re-scan scheduling, alerts and cache retention.
+  More workers: <code>WORKER_REPLICAS=4</code> in <code>.env</code> or <code>docker compose up -d --scale worker=4</code>.</p>
+{% endcall %}
+</div>
+
+<div class="mb-6" id="clamav">
+{% call card('Malware scanning (ClamAV)') %}
+<div class="grid lg:grid-cols-2 gap-0 lg:divide-x divide-slate-100">
+  <form method="post" action="{{ url_for('ui.scanner_clamav') }}" class="p-5 space-y-4 text-sm">{{ csrf() }}
+    <label class="flex items-start gap-2"><input type="checkbox" name="enabled" class="mt-1" {{ 'checked' if clamav.enabled }}>
+      <span><b>Scan all artifacts with ClamAV</b><br><span class="text-slate-500">Every new or changed version is streamed to clamd before the vulnerability scan; periodic re-scans repeat the check with current signatures.</span></span></label>
+    <div class="grid grid-cols-3 gap-3">
+      <label class="block col-span-2"><span class="text-slate-700">clamd host</span><input name="host" value="{{ clamav.host }}" class="{{ input }}"></label>
+      <label class="block"><span class="text-slate-700">Port</span><input name="port" type="number" value="{{ clamav.port }}" class="{{ input }}"></label>
+    </div>
+    <label class="block"><span class="text-slate-700">Skip files larger than (MB)</span>
+      <input name="max_file_mb" type="number" min="0" value="{{ clamav.max_file_mb }}" class="{{ input }} max-w-32">
+      <span class="text-xs text-slate-500">clamd's <code>StreamMaxLength</code> must be at least this size (<code>CLAMD_CONF_StreamMaxLength</code> in docker-compose.yml: 2000M). 0 = no limit.</span></label>
+    <label class="flex items-start gap-2"><input type="checkbox" name="block_infected" class="mt-1" {{ 'checked' if clamav.block_infected }}>
+      <span><b>Block infected versions</b><br><span class="text-slate-500">Downloads are refused with HTTP 403 and the versions disappear from indexes. An e-mail alert is sent if alerts are enabled.</span></span></label>
+    <label class="flex items-start gap-2"><input type="checkbox" name="block_unscanned" class="mt-1" {{ 'checked' if clamav.block_unscanned }}>
+      <span><b>Hold back new uploads until scanned</b><br><span class="text-slate-500">Hosted repositories only: new versions can be downloaded after a clean ClamAV result (proxied artifacts are served on first request and checked right after).</span></span></label>
+    <button class="rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-4 py-2">Save</button>
+  </form>
+  <div class="p-5 text-sm space-y-3">
+    {% if not clamav.enabled %}
+      <p class="text-slate-500">Malware scanning is disabled. Start clamd with <code>COMPOSE_PROFILES=clamav</code> (see Setup guides → ClamAV), then enable it here.</p>
+    {% elif clamav_info and clamav_info.ok %}
+      <dl class="space-y-2">
+        <div class="flex justify-between"><dt class="text-slate-500">clamd</dt><dd><span class="text-emerald-700">reachable</span> · {{ clamav.host }}:{{ clamav.port }}</dd></div>
+        <div class="flex justify-between"><dt class="text-slate-500">Engine</dt><dd>ClamAV {{ clamav_info.engine }}</dd></div>
+        <div class="flex justify-between"><dt class="text-slate-500">Signature version</dt><dd>{{ clamav_info.signatures or '–' }}</dd></div>
+        <div class="flex justify-between"><dt class="text-slate-500">Signatures from</dt><dd>{{ clamav_info.signature_date or '–' }}</dd></div>
+      </dl>
+      <p class="text-xs text-slate-500">Signatures are updated by freshclam inside the ClamAV container (several times a day).</p>
+    {% else %}
+      <div class="rounded bg-red-50 text-red-800 p-3 text-xs break-words">clamd not reachable: {{ clamav_info.error if clamav_info else '' }}</div>
+    {% endif %}
+    <dl class="space-y-1 border-t border-slate-100 pt-3">
+      {% for st, label in [('clean', 'clean'), ('infected', 'infected'), ('error', 'scan errors'), ('none', 'not checked')] %}
+      <div class="flex justify-between"><dt class="text-slate-500">{{ label }}</dt><dd class="tabular-nums {{ 'text-red-700 font-semibold' if st == 'infected' and malware_counts.get(st) }}">{{ malware_counts.get(st, 0) }}</dd></div>
+      {% endfor %}
+    </dl>
+    {% if clamav.enabled %}
+    <form method="post" action="{{ url_for('ui.scanner_clamav_rescan') }}">{{ csrf() }}
+      <button class="rounded-md px-3 py-1.5 ring-1 ring-slate-300 bg-white hover:bg-slate-50">Scan unchecked versions now</button></form>
+    {% endif %}
+    {% if infected %}
+    <div class="border-t border-slate-100 pt-3"><div class="font-medium mb-1">Infected versions</div>
+      <ul class="space-y-1">{% for v in infected %}
+        <li><a class="text-red-700 hover:underline" href="{{ url_for('ui.version_detail', vid=v.id) }}">{{ v.package.repository.name }}/{{ v.package.display_name }}@{{ v.version }}</a>
+          <span class="text-xs text-slate-500">{{ v.malware_name }}</span></li>{% endfor %}</ul></div>
+    {% endif %}
+  </div>
+</div>
+{% endcall %}
+</div>
+
+{% if failed %}
+{% call card('Recently failed scans') %}
+<ul class="divide-y divide-slate-100 text-sm">
+  {% for v in failed %}
+  <li class="px-5 py-2"><a class="text-indigo-700 hover:underline" href="{{ url_for('ui.version_detail', vid=v.id) }}">{{ v.package.repository.name }}/{{ v.package.display_name }}@{{ v.version }}</a>
+    <span class="text-xs text-slate-400">{{ dt(v.scanned_at) }}</span>
+    <div class="text-xs text-red-700 break-words">{{ (v.scan_error or '')[:300] }}</div></li>
+  {% endfor %}
+</ul>
+{% endcall %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,715 @@
+{% extends "base.html" %}
+{% from "_macros.html" import card, code, icon %}
+{% block title %}Setup guides{% endblock %}
+{% block content %}
+{# Examples use this instance's URL and existing repository names. USER / TOKEN = your user name and API token. #}
+{% set sections = [
+  ('start', 'Getting started'), ('auth', 'Users, tokens & permissions'), ('docker', 'Docker / OCI'),
+  ('pypi', 'Python (pip, uv, poetry, twine)'), ('npm', 'Node.js (npm, yarn, pnpm)'), ('deb', 'Debian / Ubuntu (apt)'),
+  ('rpm', 'RPM (dnf / yum)'), ('apk', 'Alpine (apk)'), ('maven', 'Maven / Gradle'), ('go', 'Go modules'),
+  ('nuget', 'NuGet (.NET)'), ('cargo', 'Cargo (Rust)'), ('helm', 'Helm charts'), ('generic', 'Generic files'),
+  ('cache', 'Proxy cache & retention'), ('quotas', 'Quotas'), ('storage', 'Storage: disk, NFS, S3'),
+  ('security', 'Scanning, SBOM & policies'), ('clamav', 'Malware scanning (ClamAV)'), ('alerts', 'E-mail alerts'),
+  ('ldap', 'LDAP / Active Directory'), ('network', 'Outbound HTTP/HTTPS proxy'), ('performance', 'Performance & metadata cache'),
+  ('reports', 'Reporting & REST API'), ('ops', 'Operations, upgrades & migrations'), ('license', 'License & components')] %}
+{% set components = [
+  ('Python libraries', [
+    ('Flask, Werkzeug, Jinja2, MarkupSafe, click, itsdangerous', 'BSD-3-Clause', 'web framework'),
+    ('Flask-SQLAlchemy, Flask-WTF, WTForms', 'BSD-3-Clause', 'ORM integration, forms / CSRF'),
+    ('SQLAlchemy, alembic, Mako', 'MIT', 'database access, schema migrations'),
+    ('gunicorn, gevent, greenlet', 'MIT (greenlet: MIT AND PSF-2.0)', 'application server, async I/O'),
+    ('Flask-Login, blinker', 'MIT', 'sessions, signals'),
+    ('requests, urllib3, charset-normalizer, idna, certifi', 'Apache-2.0 / MIT / BSD-3-Clause / MPL-2.0', 'upstream HTTP client, CA bundle'),
+    ('packaging', 'Apache-2.0 OR BSD-2-Clause', 'Python version / file name parsing'),
+    ('psycopg, psycopg-binary', 'LGPL-3.0-only', 'PostgreSQL driver (dynamically imported, unmodified)'),
+    ('cryptography, cffi, pycparser', 'Apache-2.0 OR BSD-3-Clause / MIT-0 / BSD-3-Clause', 'Alpine index signatures'),
+    ('zstandard', 'BSD-3-Clause', 'reading zstd-compressed .deb packages'),
+    ('boto3, botocore, s3transfer, jmespath, python-dateutil, six', 'Apache-2.0 / MIT / BSD-3-Clause', 'S3 storage backend'),
+    ('ldap3, pyasn1', 'LGPL-3.0 / BSD-2-Clause', 'LDAP / Active Directory authentication (unmodified)'),
+    ('PyYAML', 'MIT', 'Helm index.yaml / Chart.yaml'),
+    ('zope.event, zope.interface, typing_extensions', 'ZPL-2.1 / PSF-2.0', 'gevent / typing dependencies')]),
+  ('Programs in the container images (separate processes)', [
+    ('Trivy (Aqua Security)', 'Apache-2.0', 'vulnerability scanner, SBOM generation'),
+    ('GnuPG', 'GPL-3.0-or-later', 'signing apt / dnf repository metadata'),
+    ('RPM, createrepo_c', 'GPL-2.0-or-later', 'reading RPMs, generating repodata'),
+    ('nginx', 'BSD-2-Clause', 'front-end proxy, file serving'),
+    ('PostgreSQL', 'PostgreSQL License', 'database (separate container)'),
+    ('ClamAV (optional)', 'GPL-2.0-only', 'malware scanning – separate container, talked to over the clamd network protocol'),
+    ('SeaweedFS (optional example)', 'Apache-2.0', 'bundled S3-compatible object store in docker-compose.s3-local.yml'),
+    ('Debian base image', 'various', 'operating system packages, see /usr/share/doc/*/copyright')]),
+  ('Front-end', [
+    ('Lucide icons', 'ISC', 'navigation icons (app/static/icons)'),
+    ('Tailwind CSS', 'MIT', 'styling (build time only)')]),
+  ('Data sources (downloaded at runtime)', [
+    ('Trivy vulnerability DB / Java DB', 'per source', 'NVD, distribution advisories, GitHub Advisory Database, …'),
+    ('OSV.dev', 'per source (mostly CC-BY 4.0)', 'PyPI / npm / Maven / Go / NuGet / crates.io advisories'),
+    ('ClamAV signatures (freshclam)', 'Cisco Talos terms', 'malware signatures, downloaded by the ClamAV container')])] %}
+<div class="flex flex-wrap items-start justify-between gap-4 mb-6">
+  <div>
+    <h1 class="text-2xl font-semibold text-slate-900">Setup guides</h1>
+    <p class="text-slate-600 mt-1 max-w-3xl">How to connect every client to Florepo {{ version }}. All examples use this instance
+      (<code>{{ base }}</code>) and existing repository names; replace <code>USER</code> / <code>TOKEN</code> with your user name and an
+      <a class="text-indigo-700 underline" href="{{ url_for('ui.tokens') }}">API token</a>.</p>
+  </div>
+  <a href="{{ url_for('docs.index') }}" class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm ring-1 ring-slate-300 bg-white hover:bg-slate-50">{{ icon('code') }}API reference</a>
+</div>
+
+<div class="grid lg:grid-cols-4 gap-6">
+  <nav class="lg:col-span-1 text-sm space-y-1 lg:sticky lg:top-6 self-start">
+    {% for id, title in sections %}<a href="#{{ id }}" class="block rounded px-2 py-1 hover:bg-slate-100">{{ title }}</a>{% endfor %}
+  </nav>
+
+  <div class="lg:col-span-3 space-y-8 text-sm text-slate-700 [&_h3]:font-semibold [&_h3]:text-slate-900 [&_h3]:mt-4 [&_h3]:mb-1 [&_p]:my-2">
+
+  {# ---------------------------------------------------------------- getting started #}
+  <section id="start">{% call card('Getting started') %}<div class="p-5">
+    <p>Create the configuration with <code>setup.sh</code> (random secrets, interactive or non-interactive) and start the stack.
+       The database schema is created and migrated automatically on every start.</p>
+    {% set x %}./setup.sh                      # interactive
+./setup.sh -y --base-url https://registry.example.com --admin-password 'S3cure-Passw0rd'
+docker compose up -d --build{% endset %}{{ code('g-start-1', x) }}
+    <p>Then sign in, create repositories under <b>Repositories → New repository</b> (hosted = your own artifacts, proxy = pass-through
+       cache for an upstream) and an API token under <b>API tokens</b>. Every repository page shows copy-ready client settings.</p>
+    <h3>Typical set of repositories</h3>
+    <table class="min-w-full text-sm my-2"><tbody class="divide-y divide-slate-100">
+      {% for n, f, k, u in [('dockerhub', 'docker', 'proxy', 'https://registry-1.docker.io'), ('docker', 'docker', 'hosted', '–'),
+                            ('pypi-remote', 'pypi', 'proxy', 'https://pypi.org'), ('pypi-local', 'pypi', 'hosted', '–'),
+                            ('npm-remote', 'npm', 'proxy', 'https://registry.npmjs.org'), ('npm-local', 'npm', 'hosted', '–'),
+                            ('debian-remote', 'deb', 'proxy', 'http://deb.debian.org/debian'), ('rocky-remote', 'rpm', 'proxy', 'https://dl.rockylinux.org/pub/rocky'),
+                            ('alpine-remote', 'apk', 'proxy', 'https://dl-cdn.alpinelinux.org/alpine')] %}
+      <tr><td class="py-1 pr-4"><code>{{ n }}</code></td><td class="py-1 pr-4">{{ f }}</td><td class="py-1 pr-4">{{ k }}</td><td class="py-1 text-slate-500">{{ u }}</td></tr>
+      {% endfor %}</tbody></table>
+    <p>Or via the REST API:</p>
+    {% set x %}curl -X POST -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" \
+  -d '{"name": "dockerhub", "format": "docker", "kind": "proxy", "cache_retention_days": 30}' \
+  {{ base }}/api/v1/repositories{% endset %}{{ code('g-start-2', x) }}
+  </div>{% endcall %}</section>
+
+  {# ---------------------------------------------------------------- auth #}
+  <section id="auth">{% call card('Users, tokens & permissions') %}<div class="p-5">
+    <p>Roles: <b>reader</b> (read/pull), <b>deployer</b> (publish – to all hosted repositories or only to selected ones),
+       <b>auditor</b> (security audit: sees all repositories incl. private ones, vulnerabilities, reports and the audit log and downloads
+       SBOMs – but cannot pull packages or change anything), <b>admin</b> (everything). Public repositories can be read anonymously.</p>
+    <table class="min-w-full text-sm my-2">
+      <thead class="text-left text-slate-500"><tr><th class="py-1 pr-4 font-medium"></th><th class="py-1 pr-4 font-medium">reader</th><th class="py-1 pr-4 font-medium">deployer</th><th class="py-1 pr-4 font-medium">auditor</th><th class="py-1 font-medium">admin</th></tr></thead>
+      <tbody class="divide-y divide-slate-100">
+      {% for what, a, b, c, d in [('Browse repositories, vulnerabilities, SBOM download', '✔', '✔', '✔', '✔'),
+                                ('Pull / install packages (docker, pip, npm, apt, dnf, apk)', '✔', '✔', '–', '✔'),
+                                ('Publish, overwrite, delete versions', '–', '✔ (all or selected repos)', '–', '✔'),
+                                ('Reports, download log, audit log, user list (read)', '–', '–', '✔', '✔'),
+                                ('Repositories, users, scanner, notifications, network settings', '–', '–', '–', '✔')] %}
+        <tr><td class="py-1 pr-4">{{ what }}</td><td class="py-1 pr-4">{{ a }}</td><td class="py-1 pr-4">{{ b }}</td><td class="py-1 pr-4">{{ c }}</td><td class="py-1">{{ d }}</td></tr>
+      {% endfor %}</tbody></table>
+    <h3>Security auditor with an API token (e.g. for a compliance tool)</h3>
+    {% set x %}curl -X POST -H "Authorization: Bearer ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{"username": "auditor", "password": "S3cure-Passw0rd", "role": "auditor"}' {{ base }}/api/v1/users
+# as auditor: inventory of everything in use + SBOM of a version
+curl -H "Authorization: Bearer AUDITOR_TOKEN" "{{ base }}/api/v1/reports/usage?days=90"
+curl -H "Authorization: Bearer AUDITOR_TOKEN" -o sbom.cdx.json {{ base }}/api/v1/versions/42/sbom{% endset %}{{ code('g-auth-2', x) }}
+    <p>API tokens (<code>flo_…</code>) work everywhere a password is accepted (Docker, pip, twine, apt, dnf, apk) and as
+       <code>Authorization: Bearer</code> (REST API, npm). Prefer one token per machine / pipeline – they can be revoked individually.</p>
+    <h3>Restrict a CI deployer to one repository</h3>
+    {% set x %}curl -X POST -H "Authorization: Bearer ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{"username": "ci-frontend", "password": "S3cure-Passw0rd", "role": "deployer",
+       "restrict_deploy": true, "deploy_repos": ["{{ r.npm }}"]}' {{ base }}/api/v1/users
+# then, as ci-frontend:
+curl -X POST -u ci-frontend:S3cure-Passw0rd -H "Content-Type: application/json" -d '{"name": "github-actions"}' \
+  {{ base }}/api/v1/tokens            # returns {"token": "flo_…"} once{% endset %}{{ code('g-auth-1', x) }}
+  </div>{% endcall %}</section>
+
+  {# ---------------------------------------------------------------- docker #}
+  <section id="docker">{% call card('Docker / OCI') %}<div class="p-5">
+    <p>Image names are <code>{{ host }}/&lt;repository&gt;/&lt;image&gt;:&lt;tag&gt;</code>. For Docker Hub proxies <code>library/</code> is added
+       automatically (<code>{{ r.dockerhub }}/nginx</code> = <code>{{ r.dockerhub }}/library/nginx</code>).</p>
+    {% set x %}echo TOKEN | docker login {{ host }} -u USER --password-stdin
+docker pull {{ host }}/{{ r.dockerhub }}/nginx:alpine                  # through the Docker Hub cache
+docker tag  myapp:1.0 {{ host }}/{{ r.docker }}/team/myapp:1.0
+docker push {{ host }}/{{ r.docker }}/team/myapp:1.0{% endset %}{{ code('g-docker-1', x) }}
+    <h3>Dockerfile</h3>
+    {% set x %}FROM {{ host }}/{{ r.dockerhub }}/python:3.12-slim
+RUN pip install --index-url {{ scheme }}://USER:TOKEN@{{ host }}/pypi/{{ r.pypi_proxy }}/simple/ flask{% endset %}{{ code('g-docker-2', x) }}
+    <h3>Kubernetes image pull secret</h3>
+    {% set x %}kubectl create secret docker-registry florepo --docker-server={{ host }} \
+  --docker-username=USER --docker-password=TOKEN
+# pod spec:  imagePullSecrets: [{name: florepo}]
+#            image: {{ host }}/{{ r.docker }}/team/myapp:1.0{% endset %}{{ code('g-docker-3', x) }}
+    <h3>GitHub Actions / GitLab CI</h3>
+    {% set x %}# GitHub Actions
+- uses: docker/login-action@v3
+  with: { registry: {{ host }}, username: {{ '${{ vars.FLOREPO_USER }}' }}, password: {{ '${{ secrets.FLOREPO_TOKEN }}' }} }
+- run: docker build -t {{ host }}/{{ r.docker }}/team/myapp:{{ '${{ github.sha }}' }} . && docker push {{ host }}/{{ r.docker }}/team/myapp:{{ '${{ github.sha }}' }}
+
+# GitLab CI
+script:
+  - echo "$FLOREPO_TOKEN" | docker login {{ host }} -u "$FLOREPO_USER" --password-stdin
+  - docker push {{ host }}/{{ r.docker }}/team/myapp:$CI_COMMIT_SHORT_SHA{% endset %}{{ code('g-docker-4', x) }}
+    <p class="text-xs text-slate-500">Docker requires HTTPS for every registry except <code>localhost</code>. For tests without TLS add
+      <code>{"insecure-registries": ["{{ host }}"]}</code> to <code>/etc/docker/daemon.json</code>. Podman/containerd work the same way.</p>
+  </div>{% endcall %}</section>
+
+  {# ---------------------------------------------------------------- pypi #}
+  <section id="pypi">{% call card('Python (pip, uv, poetry, twine)') %}<div class="p-5">
+    {% set idx = scheme ~ '://USER:TOKEN@' ~ host ~ '/pypi/' ~ r.pypi_proxy ~ '/simple/' %}
+    <h3>pip</h3>
+    {% set x %}# ~/.config/pip/pip.conf (Linux), %APPDATA%\pip\pip.ini (Windows) or /etc/pip.conf
+[global]
+index-url = {{ idx }}
+
+# or per command / environment
+pip install --index-url {{ idx }} requests
+export PIP_INDEX_URL={{ idx }}{% endset %}{{ code('g-pypi-1', x) }}
+    <h3>uv</h3>
+    {% set x %}# pyproject.toml
+[[tool.uv.index]]
+name = "florepo"
+url = "{{ base }}/pypi/{{ r.pypi_proxy }}/simple/"
+default = true
+
+# credentials: UV_INDEX_FLOREPO_USERNAME=USER  UV_INDEX_FLOREPO_PASSWORD=TOKEN{% endset %}{{ code('g-pypi-2', x) }}
+    <h3>Poetry</h3>
+    {% set x %}poetry source add --priority=primary florepo {{ base }}/pypi/{{ r.pypi_proxy }}/simple/
+poetry config http-basic.florepo USER TOKEN{% endset %}{{ code('g-pypi-3', x) }}
+    <h3>Publish with twine</h3>
+    {% set x %}# ~/.pypirc
+[distutils]
+index-servers = florepo
+[florepo]
+repository = {{ base }}/pypi/{{ r.pypi }}/
+username = USER
+password = TOKEN
+
+python -m build && twine upload -r florepo dist/*{% endset %}{{ code('g-pypi-4', x) }}
+    <p class="text-xs text-slate-500">The proxy serves PEP 658 metadata, so pip resolves dependencies without downloading every candidate.
+      Re-uploading an existing file is rejected (409) unless the repository allows overwrite.</p>
+  </div>{% endcall %}</section>
+
+  {# ---------------------------------------------------------------- npm #}
+  <section id="npm">{% call card('Node.js (npm, yarn, pnpm)') %}<div class="p-5">
+    {% set reg = base ~ '/npm/' ~ r.npm_proxy ~ '/' %}{% set local = base ~ '/npm/' ~ r.npm ~ '/' %}
+    <h3>.npmrc (npm, pnpm, yarn 1)</h3>
+    {% set x %}registry={{ reg }}
+{{ reg.split(':', 1)[1] }}:_authToken=TOKEN
+@acme:registry={{ local }}
+{{ local.split(':', 1)[1] }}:_authToken=TOKEN{% endset %}{{ code('g-npm-1', x) }}
+    <h3>Yarn (berry) – .yarnrc.yml</h3>
+    {% set x %}npmRegistryServer: "{{ reg }}"
+npmAuthToken: "TOKEN"
+npmScopes:
+  acme:
+    npmRegistryServer: "{{ local }}"
+    npmAuthToken: "TOKEN"{% endset %}{{ code('g-npm-2', x) }}
+    <h3>Publish, login, dist-tags</h3>
+    {% set x %}npm login --registry={{ local }} --auth-type=legacy     # creates a token
+npm publish --registry={{ local }}
+npm dist-tag add @acme/lib@1.1.0 beta --registry={{ local }}
+npm deprecate @acme/lib@1.0.0 "use 1.1" --registry={{ local }}{% endset %}{{ code('g-npm-3', x) }}
+  </div>{% endcall %}</section>
+
+  {# ---------------------------------------------------------------- deb #}
+  <section id="deb">{% call card('Debian / Ubuntu (apt)') %}<div class="p-5">
+    <h3>Proxy (mirror of deb.debian.org, archive.ubuntu.com, …)</h3>
+    <p>Paths below the repository mirror the upstream. The upstream's own signatures are passed through, so the distribution keyring stays valid.</p>
+    {% set x %}# /etc/apt/sources.list.d/debian.sources  (replace the default sources)
+Types: deb
+URIs: {{ base }}/deb/{{ r.deb_proxy }}
+Suites: bookworm bookworm-updates
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg{% endset %}{{ code('g-deb-1', x) }}
+    <h3>Hosted repository (your own .deb packages, signed by Florepo)</h3>
+    {% set x %}# upload (distribution and component are optional: default stable / main)
+curl -u USER:TOKEN --upload-file mytool_1.0-1_amd64.deb "{{ base }}/deb/{{ r.deb }}/upload/?distribution=stable&component=main"
+
+# client
+curl -fsSL {{ base }}/deb/{{ r.deb }}/key.gpg -o /etc/apt/keyrings/florepo.gpg
+echo "deb [signed-by=/etc/apt/keyrings/florepo.gpg] {{ base }}/deb/{{ r.deb }} stable main" \
+  > /etc/apt/sources.list.d/florepo.list
+apt-get update && apt-get install mytool{% endset %}{{ code('g-deb-2', x) }}
+    <h3>Private repositories</h3>
+    {% set x %}# /etc/apt/auth.conf.d/florepo.conf   (chmod 600)
+machine {{ host }}/deb/ login USER password TOKEN{% endset %}{{ code('g-deb-3', x) }}
+    <h3>In a Dockerfile</h3>
+    {% set x %}FROM {{ host }}/{{ r.dockerhub }}/debian:12
+RUN sed -i 's#http://deb.debian.org/debian#{{ base }}/deb/{{ r.deb_proxy }}#' /etc/apt/sources.list.d/debian.sources \
+ && apt-get update && apt-get install -y --no-install-recommends curl{% endset %}{{ code('g-deb-4', x) }}
+    <p class="text-xs text-slate-500">Vulnerability scanning needs the release: set <b>Distribution</b> (e.g. <code>debian:12</code>, <code>ubuntu:24.04</code>)
+      in the repository settings – for proxies it is detected from the requested suite (bookworm → Debian 12).</p>
+  </div>{% endcall %}</section>
+
+  {# ---------------------------------------------------------------- rpm #}
+  <section id="rpm">{% call card('RPM (dnf / yum)') %}<div class="p-5">
+    <h3>Proxy (Rocky, AlmaLinux, CentOS Stream, Fedora, EPEL, …)</h3>
+    {% set x %}# /etc/yum.repos.d/rocky.repo   (move the original *.repo files away)
+[baseos]
+name=BaseOS via Florepo
+baseurl={{ base }}/rpm/{{ r.rpm_proxy }}/$releasever/BaseOS/$basearch/os/
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-Rocky-9
+[appstream]
+name=AppStream via Florepo
+baseurl={{ base }}/rpm/{{ r.rpm_proxy }}/$releasever/AppStream/$basearch/os/
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-Rocky-9{% endset %}{{ code('g-rpm-1', x) }}
+    <h3>Hosted repository (repodata generated by createrepo_c, repomd.xml signed)</h3>
+    {% set x %}curl -u USER:TOKEN --upload-file mytool-1.0-1.x86_64.rpm {{ base }}/rpm/{{ r.rpm }}/upload/
+
+# /etc/yum.repos.d/florepo.repo
+[florepo]
+name=Florepo
+baseurl={{ base }}/rpm/{{ r.rpm }}/
+repo_gpgcheck=1
+gpgcheck=0
+gpgkey={{ base }}/rpm/{{ r.rpm }}/key.asc
+# private repositories:
+username=USER
+password=TOKEN{% endset %}{{ code('g-rpm-2', x) }}
+    <p class="text-xs text-slate-500"><code>repo_gpgcheck=1</code> verifies Florepo's signature of the metadata; package signatures
+      (<code>gpgcheck</code>) only apply if you sign your RPMs yourself. Scanning detects the release from <code>.elN</code> versions and the
+      upstream host – or set <b>Distribution</b> (e.g. <code>rocky:9</code>, <code>alma:9</code>).</p>
+  </div>{% endcall %}</section>
+
+  {# ---------------------------------------------------------------- apk #}
+  <section id="apk">{% call card('Alpine (apk)') %}<div class="p-5">
+    <h3>Proxy (dl-cdn.alpinelinux.org)</h3>
+    {% set x %}# /etc/apk/repositories
+{{ base }}/apk/{{ r.apk_proxy }}/v3.20/main
+{{ base }}/apk/{{ r.apk_proxy }}/v3.20/community
+# private: {{ scheme }}://USER:TOKEN@{{ host }}/apk/{{ r.apk_proxy }}/v3.20/main{% endset %}{{ code('g-apk-1', x) }}
+    <h3>Hosted repository (APKINDEX signed with Florepo's RSA key)</h3>
+    {% set x %}curl -u USER:TOKEN --upload-file mytool-1.0-r0.apk "{{ base }}/apk/{{ r.apk }}/upload/?branch=v3.20&repository=main"
+
+wget -O /etc/apk/keys/{{ apk_key }} {{ base }}/apk/{{ r.apk }}/key.rsa.pub
+echo "{{ base }}/apk/{{ r.apk }}/v3.20/main" >> /etc/apk/repositories
+apk update && apk add mytool{% endset %}{{ code('g-apk-2', x) }}
+    {% set x %}FROM {{ host }}/{{ r.dockerhub }}/alpine:3.20
+RUN printf '{{ base }}/apk/{{ r.apk_proxy }}/v3.20/main\n' > /etc/apk/repositories && apk add --no-cache curl{% endset %}{{ code('g-apk-3', x) }}
+  </div>{% endcall %}</section>
+
+
+  {# ---------------------------------------------------------------- maven #}
+  <section id="maven">{% call card('Maven / Gradle') %}<div class="p-5">
+    <p>Standard Maven 2 layout under <code>{{ base }}/maven/&lt;repo&gt;/</code>. Hosted repositories accept <code>mvn deploy</code> /
+       <code>gradle publish</code>; <code>maven-metadata.xml</code> is generated from the stored versions, SNAPSHOT metadata uploaded by the
+       client is kept, <code>.md5/.sha1/.sha256/.sha512</code> are served for every file. Releases are immutable unless “Allow overwrite” is set;
+       SNAPSHOTs can always be re-deployed. Proxy repositories cache Maven Central (or any Maven repository); jars are scanned by Trivy
+       (Java DB) and every artifact is checked against OSV.dev.</p>
+    <h3>~/.m2/settings.xml – mirror Central through the cache, credentials for deploy</h3>
+    {% set x %}<settings>
+  <servers>
+    <server><id>{{ r.maven_proxy }}</id><username>USER</username><password>TOKEN</password></server>
+    <server><id>{{ r.maven }}</id><username>USER</username><password>TOKEN</password></server>
+  </servers>
+  <mirrors>
+    <mirror><id>{{ r.maven_proxy }}</id><mirrorOf>central</mirrorOf><url>{{ base }}/maven/{{ r.maven_proxy }}/</url></mirror>
+  </mirrors>
+</settings>{% endset %}{{ code('g-mvn-1', x) }}
+    <h3>pom.xml – deploy to the hosted repository</h3>
+    {% set x %}<distributionManagement>
+  <repository><id>{{ r.maven }}</id><url>{{ base }}/maven/{{ r.maven }}/</url></repository>
+  <snapshotRepository><id>{{ r.maven }}</id><url>{{ base }}/maven/{{ r.maven }}/</url></snapshotRepository>
+</distributionManagement>
+<!-- consumers additionally list <repository><id>{{ r.maven }}</id><url>{{ base }}/maven/{{ r.maven }}/</url></repository> -->{% endset %}{{ code('g-mvn-2', x) }}
+    <h3>Gradle (Kotlin DSL)</h3>
+    {% set x %}repositories {
+    maven { url = uri("{{ base }}/maven/{{ r.maven_proxy }}/"); credentials { username = "USER"; password = "TOKEN" } }
+}
+publishing {
+    repositories {
+        maven { url = uri("{{ base }}/maven/{{ r.maven }}/"); credentials { username = "USER"; password = "TOKEN" } }
+    }
+}{% endset %}{{ code('g-mvn-3', x) }}
+  </div>{% endcall %}</section>
+
+  {# ---------------------------------------------------------------- go #}
+  <section id="go">{% call card('Go modules') %}<div class="p-5">
+    <p>Florepo implements the GOPROXY protocol (<code>list</code>, <code>.info</code>, <code>.mod</code>, <code>.zip</code>,
+       <code>@latest</code>). Proxy repositories cache proxy.golang.org and also relay the checksum database (<code>sum.golang.org</code>), so
+       <code>go</code> verifies modules without direct internet access. <b>Note:</b> the go command never sends credentials over plain HTTP –
+       for private Go repositories use HTTPS (see Operations → TLS) or make the repository publicly readable.</p>
+    <h3>Use the cache (and the checksum database through it)</h3>
+    {% set x %}go env -w GOPROXY={{ scheme }}://USER:TOKEN@{{ host }}/go/{{ r.go_proxy }},direct
+go env -w GOSUMDB="sum.golang.org {{ scheme }}://USER:TOKEN@{{ host }}/go/{{ r.go_proxy }}/sumdb/sum.golang.org"
+go mod download{% endset %}{{ code('g-go-1', x) }}
+    <h3>Publish a private module version</h3>
+    <p>Upload a zip of the module directory; Florepo checks <code>go.mod</code>, enforces semantic versions (and the <code>/vN</code>
+       suffix for v2+) and repacks the files into the <code>module@version/</code> layout. Upper-case letters in the module path are written
+       as <code>!</code> + lower-case (GOPROXY encoding).</p>
+    {% set x %}cd mymodule && git archive --format=zip -o /tmp/v1.4.0.zip v1.4.0
+curl -u USER:TOKEN --upload-file /tmp/v1.4.0.zip \
+  {{ base }}/go/{{ r.go }}/git.example.com/team/mymodule/@v/v1.4.0.zip
+
+# consumers: private repository first, then the cache; private modules are not in sum.golang.org
+go env -w GOPROXY={{ scheme }}://USER:TOKEN@{{ host }}/go/{{ r.go }},{{ scheme }}://USER:TOKEN@{{ host }}/go/{{ r.go_proxy }}
+go env -w GONOSUMDB=git.example.com/*
+go get git.example.com/team/mymodule@v1.4.0{% endset %}{{ code('g-go-2', x) }}
+  </div>{% endcall %}</section>
+
+  {# ---------------------------------------------------------------- nuget #}
+  <section id="nuget">{% call card('NuGet (.NET)') %}<div class="p-5">
+    <p>NuGet v3 feed with service index, flat container, registrations and search. The source URL is
+       <code>{{ base }}/nuget/&lt;repo&gt;/index.json</code>. Proxy repositories cache nuget.org (all URLs in the upstream documents are
+       rewritten to Florepo). <code>dotnet nuget push</code> authenticates with the API token as API key.</p>
+    {% set x %}<!-- nuget.config -->
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="{{ r.nuget_proxy }}" value="{{ base }}/nuget/{{ r.nuget_proxy }}/index.json"{{ ' allowInsecureConnections="true"' if scheme == 'http' }} />
+    <add key="{{ r.nuget }}" value="{{ base }}/nuget/{{ r.nuget }}/index.json"{{ ' allowInsecureConnections="true"' if scheme == 'http' }} />
+  </packageSources>
+  <packageSourceCredentials>
+    <{{ r.nuget_proxy }}><add key="Username" value="USER" /><add key="ClearTextPassword" value="TOKEN" /></{{ r.nuget_proxy }}>
+    <{{ r.nuget }}><add key="Username" value="USER" /><add key="ClearTextPassword" value="TOKEN" /></{{ r.nuget }}>
+  </packageSourceCredentials>
+</configuration>{% endset %}{{ code('g-nuget-1', x) }}
+    {% set x %}dotnet pack -c Release
+dotnet nuget push bin/Release/MyLib.1.0.0.nupkg -s {{ r.nuget }} -k TOKEN
+dotnet add package MyLib --version 1.0.0{% endset %}{{ code('g-nuget-2', x) }}
+  </div>{% endcall %}</section>
+
+  {# ---------------------------------------------------------------- cargo #}
+  <section id="cargo">{% call card('Cargo (Rust)') %}<div class="p-5">
+    <p>Sparse registry protocol (<code>sparse+{{ base }}/cargo/&lt;repo&gt;/index/</code>) with <code>cargo publish</code>,
+       <code>yank</code>, <code>search</code>. Proxy repositories replace crates.io (index files are cached for
+       <code>PROXY_METADATA_TTL</code>, crates forever; checksums from the index are verified). Cargo sends the API token as
+       <code>Authorization</code> header.</p>
+    {% set x %}# ~/.cargo/config.toml
+[source.crates-io]
+replace-with = "{{ r.cargo_proxy }}"
+[source.{{ r.cargo_proxy }}]
+registry = "sparse+{{ base }}/cargo/{{ r.cargo_proxy }}/index/"
+[registries.{{ r.cargo_proxy }}]
+index = "sparse+{{ base }}/cargo/{{ r.cargo_proxy }}/index/"
+[registries.{{ r.cargo }}]
+index = "sparse+{{ base }}/cargo/{{ r.cargo }}/index/"
+[registry]
+global-credential-providers = ["cargo:token"]{% endset %}{{ code('g-cargo-1', x) }}
+    {% set x %}cargo login --registry {{ r.cargo_proxy }} TOKEN
+cargo login --registry {{ r.cargo }} TOKEN
+cargo publish --registry {{ r.cargo }}          # Cargo.toml: publish = ["{{ r.cargo }}"]
+# consumers: mylib = { version = "0.1", registry = "{{ r.cargo }}" }
+cargo yank --registry {{ r.cargo }} --version 0.1.0 mylib{% endset %}{{ code('g-cargo-2', x) }}
+  </div>{% endcall %}</section>
+
+  {# ---------------------------------------------------------------- helm #}
+  <section id="helm">{% call card('Helm charts') %}<div class="p-5">
+    <p>Classic chart repositories (<code>index.yaml</code> + archives). Uploads use the ChartMuseum API, so <code>helm cm-push</code> works,
+       as does plain curl. Proxy repositories cache any chart repository: the upstream <code>index.yaml</code> is rewritten so all chart
+       URLs point to Florepo, charts are fetched from their original location on first download. (Charts stored in OCI registries can be
+       pushed to a Docker repository with <code>helm push … oci://{{ host }}/{{ r.docker }}</code>.)</p>
+    {% set x %}helm repo add {{ r.helm }} {{ base }}/helm/{{ r.helm }} --username USER --password TOKEN
+helm package ./mychart
+curl -u USER:TOKEN --data-binary @mychart-0.1.0.tgz {{ base }}/helm/{{ r.helm }}/api/charts
+helm repo update && helm install demo {{ r.helm }}/mychart --version 0.1.0
+curl -u USER:TOKEN -X DELETE {{ base }}/helm/{{ r.helm }}/api/charts/mychart/0.1.0{% endset %}{{ code('g-helm-1', x) }}
+    {% set x %}# proxy repository for e.g. https://prometheus-community.github.io/helm-charts
+helm repo add prom {{ base }}/helm/{{ r.helm_proxy }} --username USER --password TOKEN
+helm install node-exporter prom/prometheus-node-exporter{% endset %}{{ code('g-helm-2', x) }}
+  </div>{% endcall %}</section>
+
+  {# ---------------------------------------------------------------- generic #}
+  <section id="generic">{% call card('Generic files') %}<div class="p-5">
+    <p>Any file – installers, firmware, tarballs, binaries. Path layout <code>&lt;package path&gt;/&lt;version&gt;/&lt;file&gt;</code> (the
+       package path may contain slashes). Uploads are immutable unless “Allow overwrite” is set; an optional
+       <code>X-Checksum-Sha256</code> header is verified. Proxy repositories cache any HTTP(S) file server, e.g. GitHub releases.</p>
+    {% set x %}curl -u USER:TOKEN -H "X-Checksum-Sha256: $(sha256sum tool.tar.gz | cut -c1-64)" \
+  -T tool.tar.gz {{ base }}/generic/{{ r.generic }}/tools/mytool/1.4.0/tool.tar.gz
+curl -fu USER:TOKEN -O {{ base }}/generic/{{ r.generic }}/tools/mytool/1.4.0/tool.tar.gz
+curl -fu USER:TOKEN {{ base }}/generic/{{ r.generic }}/tools/mytool/1.4.0/tool.tar.gz.sha256
+curl -fu USER:TOKEN {{ base }}/generic/{{ r.generic }}/tools/        # JSON listing
+curl -u USER:TOKEN -X DELETE {{ base }}/generic/{{ r.generic }}/tools/mytool/1.4.0/tool.tar.gz
+
+# proxy with upstream https://github.com:
+curl -fu USER:TOKEN -LO {{ base }}/generic/{{ r.generic_proxy }}/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64{% endset %}{{ code('g-generic-1', x) }}
+  </div>{% endcall %}</section>
+  {# ---------------------------------------------------------------- cache #}
+  <section id="cache">{% call card('Proxy cache & retention') %}<div class="p-5">
+    <p>Proxy repositories fetch from the upstream on first request and serve from disk afterwards. Packages/layers are immutable and kept;
+       index metadata (pip pages, npm packuments, Docker tags, apt/dnf/apk indexes) is refreshed after <code>PROXY_METADATA_TTL</code>
+       (default 300 s). If the upstream is down, the cached copy is served.</p>
+    <h3>How long cached packages stay on disk</h3>
+    <p><b>Repository settings → Keep cached packages on disk for N days after the last download</b>. The worker removes expired entries hourly
+       and runs a garbage collection; a removed package is simply fetched again when requested. 0 = keep forever.</p>
+    {% set x %}# set retention to 30 days
+curl -X PATCH -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" \
+  -d '{"cache_retention_days": 30}' {{ base }}/api/v1/repositories/{{ r.dockerhub }}
+# usage and manual purge (all entries, or only those unused for N days)
+curl -H "Authorization: Bearer TOKEN" {{ base }}/api/v1/repositories/{{ r.dockerhub }}/cache
+curl -X POST -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" \
+  -d '{"older_than_days": 90}' {{ base }}/api/v1/repositories/{{ r.dockerhub }}/cache/purge
+docker compose exec web flask --app wsgi purge-cache {{ r.dockerhub }} --older-than 90{% endset %}{{ code('g-cache-1', x) }}
+    <p>The cache hit rate per period is shown under <b>Reporting → Overview</b>; every download records whether it was a hit or a miss.</p>
+  </div>{% endcall %}</section>
+
+
+  {# ---------------------------------------------------------------- quotas #}
+  <section id="quotas">{% call card('Quotas') %}<div class="p-5">
+    <p><b>Repository quota</b> (repository settings or API, e.g. <code>20G</code>): hosted repositories reject uploads that would exceed it with
+       HTTP 413 and a clear message (also <code>docker push</code>: layers that already exist in another repository are counted when the
+       manifest is pushed). For proxy repositories the value is the <b>cache size limit</b>: the worker evicts the least recently used cached
+       artifacts hourly down to 90 %. <b>User quota</b>: total size a user may upload to hosted repositories – a global default for all
+       non-admin users (<b>Administration → Storage &amp; quotas</b>) and an individual value on the user's page (custom / unlimited).
+       Usage is the logical size of the stored artifacts; Docker layers shared by several tags count once per repository.</p>
+    {% set x %}# 50 GB for a hosted repository, 200 GB cache limit for a proxy
+curl -X PATCH -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" -d '{"quota": "50G"}' {{ base }}/api/v1/repositories/{{ r.docker }}
+curl -X PATCH -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" -d '{"quota": "200G"}' {{ base }}/api/v1/repositories/{{ r.dockerhub }}
+# default user quota 10 GB, unlimited for one user, current usage
+curl -X PUT -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" -d '{"default_user_quota": "10G"}' {{ base }}/api/v1/storage/quotas
+curl -X PATCH -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" -d '{"quota_bytes": 0}' {{ base }}/api/v1/users/7
+curl -H "Authorization: Bearer TOKEN" {{ base }}/api/v1/storage{% endset %}{{ code('g-quota-1', x) }}
+  </div>{% endcall %}</section>
+
+  {# ---------------------------------------------------------------- storage #}
+  <section id="storage">{% call card('Storage: disk, NFS, S3') %}<div class="p-5">
+    <p>Artifacts are stored content-addressed (identical files only once). The backend is chosen with environment variables;
+       <b>Administration → Storage &amp; quotas</b> shows it and runs a write/read/delete check. Database, signing keys and the Trivy cache
+       always stay on the local <code>data</code> volume.</p>
+    <h3>Local disk (default) or a network file system</h3>
+    <p><code>STORAGE_BACKEND=fs</code> stores blobs below <code>STORAGE_PATH</code>. Mount an NFS (v4.1+), SMB or CephFS share there to share
+       it between hosts – uploads are written to a temporary file on the same file system and renamed atomically. The containers run as
+       uid 1000, the export must allow it to write. <code>docker-compose.nfs.yml</code> mounts an NFS export as the storage volume:</p>
+    {% set x %}# .env
+NFS_SERVER=10.0.0.20
+NFS_EXPORT=/export/florepo
+COMPOSE_FILE=docker-compose.yml:docker-compose.nfs.yml
+
+# /etc/exports on the NFS server
+/export/florepo  10.0.0.0/24(rw,sync,no_subtree_check,all_squash,anonuid=1000,anongid=1000)
+
+# move existing data once
+docker compose stop web worker nginx
+docker run --rm -v florepo_data:/data -v florepo_storage:/nfs alpine cp -a /data/storage/. /nfs/
+docker compose up -d{% endset %}{{ code('g-storage-1', x) }}
+    <h3>S3 compatible object storage</h3>
+    <p><code>STORAGE_BACKEND=s3</code> works with AWS S3, Ceph RGW, Garage, Wasabi, SeaweedFS, MinIO, … Uploads are staged on local disk
+       (<code>STAGING_PATH</code>) so their digest can be verified, then uploaded (multipart). Downloads (<code>S3_SERVE</code>):
+       <code>proxy</code> (default) – nginx streams the object from the store, clients only talk to Florepo;
+       <code>redirect</code> – clients get a pre-signed URL (they need access to the object store); <code>stream</code> – through the app
+       (without nginx). <code>docker-compose.s3-local.yml</code> bundles SeaweedFS as a ready-to-run example.</p>
+    {% set x %}# .env – e.g. AWS
+STORAGE_BACKEND=s3
+S3_BUCKET=my-florepo
+S3_REGION=eu-central-1
+S3_ACCESS_KEY_ID=AKIA...
+S3_SECRET_ACCESS_KEY=...
+# other providers: S3_ENDPOINT_URL=https://s3.example.com  (path-style addressing is used automatically)
+# optional: S3_PREFIX=prod/  S3_SERVE=proxy|redirect|stream  S3_CA_BUNDLE=/data/ca.pem  S3_USE_PROXY=false
+
+# migrate existing file system data, then switch
+docker compose run --rm web flask --app wsgi storage-copy      # copies blobs + SBOMs, skips existing objects
+docker compose up -d
+docker compose exec web flask --app wsgi storage-check{% endset %}{{ code('g-storage-2', x) }}
+  </div>{% endcall %}</section>
+  {# ---------------------------------------------------------------- security #}
+  <section id="security">{% call card('Scanning, SBOM & policies') %}<div class="p-5">
+    <p>Every version is scanned on upload / first cache fill and re-scanned periodically: Trivy for images and OS packages, Trivy + OSV.dev for
+       PyPI, npm, Maven, Go, NuGet and Cargo (Helm charts and generic files: Trivy finds embedded lock files, jars and Go/Rust binaries).
+       Optionally ClamAV checks every file for malware (see below). Signature updates and re-scan intervals are configured under <b>Administration → Scanner &amp; DB</b>.</p>
+    <h3>Block vulnerable downloads</h3>
+    <p>Repository setting <b>Block downloads from severity</b>: affected versions are rejected with HTTP 403 (and hidden from pip/npm and hosted
+       indexes). Example: block everything with CRITICAL findings coming from Docker Hub:</p>
+    {% set x %}curl -X PATCH -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" \
+  -d '{"block_severity": "CRITICAL"}' {{ base }}/api/v1/repositories/{{ r.dockerhub }}{% endset %}{{ code('g-sec-1', x) }}
+    <h3>CI gate and SBOM</h3>
+    {% set x %}# fail the pipeline if the version has critical or high findings
+curl -s -H "Authorization: Bearer TOKEN" {{ base }}/api/v1/versions/42 \
+  | jq -e '.scan.status == "done" and .scan.counts.critical == 0 and .scan.counts.high == 0'
+# download the CycloneDX SBOM
+curl -H "Authorization: Bearer TOKEN" -o sbom.cdx.json {{ base }}/api/v1/versions/42/sbom{% endset %}{{ code('g-sec-2', x) }}
+  </div>{% endcall %}</section>
+
+
+  {# ---------------------------------------------------------------- clamav #}
+  <section id="clamav">{% call card('Malware scanning (ClamAV)') %}<div class="p-5">
+    <p>Optionally every new or changed version is streamed to ClamAV (clamd) before the vulnerability scan – all files of a package, for
+       Docker images config and layers of the scanned platform (archives such as zip, wheel, jar, tar.gz and image layers are unpacked by
+       ClamAV). Periodic re-scans repeat the check with current signatures. Infected versions are <b>blocked</b> (HTTP 403, hidden from
+       indexes) and trigger an e-mail alert if alerts are enabled. Optionally new uploads of hosted repositories are held back until they were
+       scanned. ClamAV (GPL-2.0) runs as a separate container; it needs about 1.5–3 GB RAM for the signatures, which freshclam updates
+       automatically.</p>
+    {% set x %}# .env – start the optional clamav service
+COMPOSE_PROFILES=clamav
+docker compose up -d                 # first start downloads the signatures (~ 1-2 minutes)
+
+# Administration → Scanner & DB → Malware scanning, or via the API:
+curl -X PUT -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" \
+  -d '{"enabled": true, "host": "clamav", "port": 3310, "block_infected": true, "block_unscanned": false, "max_file_mb": 1024}' \
+  {{ base }}/api/v1/clamav
+curl -H "Authorization: Bearer TOKEN" {{ base }}/api/v1/clamav       # engine, signature version, counters
+# result per version: .scan.malware.status = clean | infected | error | none
+curl -s -H "Authorization: Bearer TOKEN" {{ base }}/api/v1/versions/42 | jq .scan.malware{% endset %}{{ code('g-clam-1', x) }}
+    <p>Test with the harmless EICAR test file. Files larger than “Skip files larger than” are not sent to clamd (clamd's
+       <code>StreamMaxLength</code> is set to 2000M in <code>docker-compose.yml</code>). An existing clamd elsewhere can be used by setting
+       its host/port instead of starting the container.</p>
+  </div>{% endcall %}</section>
+  {# ---------------------------------------------------------------- alerts #}
+  <section id="alerts">{% call card('E-mail alerts') %}<div class="p-5">
+    <p>When periodic re-scans (with new signatures) find <i>new</i> vulnerabilities above a threshold, one batched e-mail per scan cycle is sent.
+       SMTP is configured in <code>.env</code>, the rule under <b>Administration → Notifications</b> (with a <i>Send test</i> button).</p>
+    {% set x %}# .env
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURITY=starttls
+SMTP_USERNAME=florepo
+SMTP_PASSWORD=secret
+SMTP_FROM=florepo@example.com
+
+# rule: alert on new CRITICAL+HIGH findings in two repositories
+curl -X PUT -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" \
+  -d '{"enabled": true, "recipients": ["security@example.com"], "threshold": "HIGH",
+       "only_new": true, "repos": ["{{ r.dockerhub }}", "{{ r.pypi_proxy }}"]}' {{ base }}/api/v1/notifications{% endset %}{{ code('g-alert-1', x) }}
+  </div>{% endcall %}</section>
+
+
+  {# ---------------------------------------------------------------- ldap #}
+  <section id="ldap">{% call card('LDAP / Active Directory') %}<div class="p-5">
+    <p>With LDAP enabled (<b>Administration → Authentication</b>) users sign in with their directory credentials – in the web UI and with every
+       client that uses HTTP Basic (<code>docker login</code>, pip, npm <code>--auth-type=legacy</code>, Maven, NuGet, Helm, …). The account
+       is created on the first sign-in; <b>role and write permissions come from groups</b>: the first matching mapping row decides the role
+       (admin, auditor, deployer, reader), deployer rows may restrict write access to repositories. Users without a mapped group are refused
+       (or get a default role). A periodic sync disables accounts that were removed, disabled in AD or dropped from all mapped groups – their
+       API tokens stop working at the same time. Local accounts (e.g. the bootstrap admin) keep working. API tokens are recommended for CI.</p>
+    <h3>Active Directory (incl. nested groups)</h3>
+    {% set x %}Server URLs:      ldaps://dc1.corp.example.com ldaps://dc2.corp.example.com
+Bind DN:          CN=svc-florepo,OU=Service Accounts,DC=corp,DC=example,DC=com
+User search base: OU=Users,DC=corp,DC=example,DC=com
+User filter:      (&(objectClass=user)(sAMAccountName={username}))
+Group membership: Active Directory incl. nested groups      Group base: OU=Groups,DC=corp,DC=example,DC=com
+Mapping:          CN=Florepo-Admins,OU=Groups,DC=corp,DC=example,DC=com  -> admin
+                  Florepo-Security                                       -> auditor
+                  Team-Payments-Dev                                           -> deployer  (payments-docker, payments-maven)
+                  Domain Users                                                -> reader{% endset %}{{ code('g-ldap-1', x) }}
+    <h3>OpenLDAP / FreeIPA – configured via the API</h3>
+    {% set x %}curl -X PUT -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" {{ base }}/api/v1/ldap -d '{
+  "enabled": true, "server_urls": ["ldaps://ldap.example.com"], "verify_tls": true,
+  "bind_dn": "cn=reader,dc=example,dc=com", "bind_password": "...",
+  "user_base": "ou=people,dc=example,dc=com", "user_filter": "(&(objectClass=inetOrgPerson)(uid={username}))",
+  "username_attr": "uid", "email_attr": "mail", "name_attr": "cn",
+  "group_mode": "search", "group_base": "ou=groups,dc=example,dc=com",
+  "group_filter": "(|(member={user_dn})(uniqueMember={user_dn})(memberUid={username}))",
+  "mappings": [{"group": "florepo-admins", "role": "admin"}, {"group": "developers", "role": "deployer", "repos": ["npm-local"]}],
+  "default_role": "", "sync_minutes": 60}'
+# check lookup, password and resulting role before enabling it for everybody
+curl -X POST -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" \
+  -d '{"username": "jdoe", "password": "..."}' {{ base }}/api/v1/ldap/test
+docker compose exec web flask --app wsgi ldap-sync{% endset %}{{ code('g-ldap-2', x) }}
+  </div>{% endcall %}</section>
+  {# ---------------------------------------------------------------- network #}
+  <section id="network">{% call card('Outbound HTTP/HTTPS proxy') %}<div class="p-5">
+    <p>All upstream traffic (proxy repositories, OSV.dev, Trivy DB downloads) can go through a corporate proxy:
+       globally under <b>Administration → Network</b> (defaults from <code>HTTP_PROXY</code>/<code>HTTPS_PROXY</code>/<code>NO_PROXY</code>),
+       and per proxy repository (global / direct / custom). <i>Test connection</i> verifies the settings.</p>
+    {% set x %}# .env (defaults, editable in the UI)
+HTTP_PROXY=http://proxy.corp.example:3128
+HTTPS_PROXY=http://proxy.corp.example:3128
+NO_PROXY=localhost,127.0.0.1,.corp.example,10.0.0.0/8
+
+# repository that reaches an internal mirror directly
+curl -X PATCH -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" \
+  -d '{"proxy_mode": "none"}' {{ base }}/api/v1/repositories/{{ r.rpm_proxy }}
+# repository behind another proxy (with credentials)
+curl -X PATCH -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" \
+  -d '{"proxy_mode": "custom", "proxy_url": "http://user:pass@dmz-proxy:8080"}' {{ base }}/api/v1/repositories/{{ r.dockerhub }}{% endset %}{{ code('g-net-1', x) }}
+  </div>{% endcall %}</section>
+
+
+  {# ---------------------------------------------------------------- performance #}
+  <section id="performance">{% call card('Performance & metadata cache') %}<div class="p-5">
+    <p>Large files (layers, jars, wheels, .deb/.rpm, charts, …) are streamed by nginx straight from disk or the object store. The expensive part
+       for the application is rendering metadata – npm packuments, PyPI simple pages, maven-metadata.xml, Helm index.yaml, NuGet registrations,
+       Cargo index files, Go version lists. These documents are cached per web worker (<code>METADATA_CACHE_MB</code>, default 32 MB) and
+       stored pre-compressed with gzip. Each request checks a fingerprint of the underlying data (one index lookup), so uploads, deletions,
+       scan results, blocks and policy changes are visible immediately; responses carry an ETag and conditional requests are answered with
+       304. The response header <code>X-Florepo-Cache: hit|miss</code> shows the effect; statistics are part of
+       <code>/api/v1/storage</code>.</p>
+    <p>Measured on a development machine (Docker Desktop, 50 parallel clients): npm packument 234 → 657 req/s, PyPI simple index
+       286 → 689 req/s, maven-metadata.xml (proxy) 43 → 602 req/s, a 6 MB Helm index 28 → 200 req/s – with 5–10× less data transferred.
+       For more throughput: more web workers (<code>WEB_WORKERS</code>), more web containers (stateless with S3 or a shared NFS storage) and a
+       PostgreSQL server close to the application.</p>
+    {% set x %}curl -s -o /dev/null -D - -H "Accept-Encoding: gzip" -u USER:TOKEN {{ base }}/npm/{{ r.npm_proxy }}/lodash | grep -i "x-florepo-cache\|etag\|content-encoding"
+# .env
+METADATA_CACHE_MB=64     # per web worker process, 0 = off
+WEB_WORKERS=16{% endset %}{{ code('g-perf-1', x) }}
+  </div>{% endcall %}</section>
+  {# ---------------------------------------------------------------- reports #}
+  <section id="reports">{% call card('Reporting & REST API') %}<div class="p-5">
+    <p>Every pull is logged (user, version, client, IP, cache hit). <b>Reporting</b> shows usage, the package inventory and – most
+       important – vulnerable versions in use and who pulled them; every table can be sorted and exported as CSV.</p>
+    {% set x %}# who pulled what in the last 7 days (JSON, paginated)
+curl -H "Authorization: Bearer TOKEN" "{{ base }}/api/v1/reports/downloads?days=7&user=alice"
+# inventory of all versions in use, with consumers and scan status
+curl -H "Authorization: Bearer TOKEN" "{{ base }}/api/v1/reports/usage?days=30&fmt=npm"
+# CSV for spreadsheets (session login or token)
+curl -H "Authorization: Bearer TOKEN" -o usage.csv "{{ base }}/reports/usage?days=90&export=csv"{% endset %}{{ code('g-rep-1', x) }}
+    <p>The complete endpoint reference is in the <a class="text-indigo-700 underline" href="{{ url_for('docs.index') }}">API docs</a>
+       (OpenAPI 3.1 at <code>/api/openapi.json</code>).</p>
+  </div>{% endcall %}</section>
+
+  {# ---------------------------------------------------------------- ops #}
+  <section id="ops">{% call card('Operations, upgrades & migrations') %}<div class="p-5">
+    <h3>Upgrading – database migrations run automatically</h3>
+    <p>The schema is versioned with Alembic. When a new version starts, the web container applies all pending migrations
+       (<code>0001 → 0002 → …</code>) before it accepts requests; a database lock prevents concurrent migrations and the worker waits until
+       the schema is current. Installations created before migrations existed are detected and stamped automatically.</p>
+    {% set x %}git pull                                  # or a new image tag
+docker compose up -d --build              # migrates automatically, see: docker compose logs web | grep migrat
+docker compose exec web flask --app wsgi db-current      # current: 0002  head: 0002{% endset %}{{ code('g-ops-1', x) }}
+    <h3>For developers: adding a migration</h3>
+    {% set x %}# 1. change app/models.py   2. generate the migration (review it!)   3. commit it
+flask --app wsgi db-revision -m "add column foo to repository"
+flask --app wsgi db-revision -m "backfill foo" --empty       # data migration (write op.execute(...) yourself)
+pytest tests/test_migrations.py                              # fails if models and migrations differ{% endset %}{{ code('g-ops-2', x) }}
+    <h3>More scan workers</h3>
+    <p>Scans are distributed over all workers (each runs one Trivy scan at a time); one worker is elected leader via a database lock and runs
+       DB updates, re-scan scheduling, alerts and cache retention. If it stops, another worker takes over within seconds. Measured: 3 workers
+       re-scanned ~260 versions 2.7× faster than one. <b>Administration → Scanner &amp; DB</b> lists all running workers.</p>
+    {% set x %}# .env
+WORKER_REPLICAS=4
+docker compose up -d                       # or ad hoc: docker compose up -d --scale worker=4{% endset %}{{ code('g-ops-5', x) }}
+    <h3>Backup, cleanup, users</h3>
+    {% set x %}# backup: database + data volume (blobs, SBOMs, signing keys!)
+docker compose exec db pg_dump -U florepo florepo > florepo.sql
+docker run --rm -v florepo_data:/data -v "$PWD":/backup alpine tar czf /backup/data.tgz /data
+
+docker compose exec web flask --app wsgi gc --dry-run        # unreferenced blobs
+docker compose exec web flask --app wsgi create-user bob --role deployer{% endset %}{{ code('g-ops-3', x) }}
+    <h3>TLS in front (Caddy example)</h3>
+    {% set x %}# Caddyfile – set BASE_URL=https://registry.example.com and PORT=8080 in .env
+registry.example.com {
+    request_body { max_size 0 }
+    reverse_proxy localhost:8080
+}{% endset %}{{ code('g-ops-4', x) }}
+    <p class="text-xs text-slate-500">Keep the <code>keys/</code> directory of the data volume: it holds the signing keys clients trust for hosted
+      apt/dnf/apk repositories.</p>
+  </div>{% endcall %}</section>
+
+  {# ---------------------------------------------------------------- license #}
+  <section id="license">{% call card('License & components') %}<div class="p-5">
+    <p><b>Florepo</b> · Copyright 2026 Maximilian Thoma</p>
+    <p>Licensed under the <b>Apache License, Version 2.0</b> (the “License”); you may not use this software except in compliance with the
+       License. You may obtain a copy of the License at
+       <a class="text-indigo-700 underline" href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noopener noreferrer">https://www.apache.org/licenses/LICENSE-2.0</a>.
+       Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an “AS IS” BASIS,
+       WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing
+       permissions and limitations under the License. The full text is in <code>LICENSE</code>, attributions in <code>NOTICE</code>.</p>
+    <p>The name “Florepo” and the logo are not licensed under the Apache License (section 6).</p>
+    <h3>Third-party components</h3>
+    <p>Florepo uses the following open-source components, each under its own license. Programs bundled in the container images are
+       separate executables invoked as external processes (aggregation); they are not linked with Florepo.</p>
+    {% for group, items in components %}
+    <div class="font-medium text-slate-900 mt-4 mb-1">{{ group }}</div>
+    <div class="overflow-x-auto">
+    <table class="sortable min-w-full text-sm">
+      <thead class="text-left text-slate-500 bg-slate-50"><tr>
+        <th class="px-3 py-1.5 font-medium">Component</th><th class="px-3 py-1.5 font-medium">License</th><th class="px-3 py-1.5 font-medium">Used for</th></tr></thead>
+      <tbody class="divide-y divide-slate-100">
+      {% for name, lic, use in items %}
+        <tr><td class="px-3 py-1.5">{{ name }}</td><td class="px-3 py-1.5 whitespace-nowrap"><code class="text-xs">{{ lic }}</code></td><td class="px-3 py-1.5 text-slate-500">{{ use }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% endfor %}
+  </div>{% endcall %}</section>
+
+  </div>
+</div>
+{% endblock %}
